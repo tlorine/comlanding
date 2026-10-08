@@ -1,131 +1,137 @@
-"use client"
+'use client';
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from 'react';
 
-const SYSTEM_SIZE = 320
-const SYSTEM_CENTER = SYSTEM_SIZE / 2
+const SYSTEM_SIZE = 500;
+const C = SYSTEM_SIZE / 2;
 
-const MIN_NODE_SCALE = 0.8
-const MAX_NODE_SCALE = 1.2
+const ORBIT_DEPTH = 0.4; // сплюснутость орбиты (0..1)
+const TILT = -12; // наклон плоскости орбит, градусы
 
-const MIN_NODE_OPACITY = 0.45
-const MAX_NODE_OPACITY = 1
+const MIN_SCALE = 0.7;
+const MAX_SCALE = 1.1;
+const MIN_OPACITY = 0.35;
+const MAX_OPACITY = 1;
 
-const PARTICLE_SPEED = 1
-const NODES_SPEED = 0.3
+const BASE_SPEED = 14; // град/сек на радиусе 100
+const PARTICLE_FACTOR = 2.5;
 
-const ORBIT_DEPTH = 0.65
+const CORE_Z = 50;
 
 type SystemNode = {
-  id: string
-  label: string
-  angle: number
-  radius: number
-  description: string
-}
+  id: string;
+  label: string;
+  angle: number;
+  radius: number;
+  description: string;
+};
 
 const nodes: SystemNode[] = [
   {
-    id: "ai",
-    label: "AI",
+    id: 'ai',
+    label: 'AI',
     angle: -70,
     radius: 100,
-    description: "LLM, agents, поиск и автоматизация решений.",
+    description: 'LLM, agents, поиск и автоматизация решений.',
   },
   {
-    id: "api",
-    label: "API",
+    id: 'api',
+    label: 'API',
     angle: 20,
-    radius: 100,
-    description: "Связываем сервисы и строим надёжные интеграции.",
+    radius: 220,
+    description: 'Связываем сервисы и строим надёжные интеграции.',
   },
   {
-    id: "db",
-    label: "DB",
+    id: 'db',
+    label: 'DB',
     angle: 110,
-    radius: 160,
-    description: "Данные, хранение, обработка и аналитика.",
+    radius: 100,
+    description: 'Данные, хранение, обработка и аналитика.',
   },
   {
-    id: "int",
-    label: "INT",
+    id: 'int',
+    label: 'INT',
     angle: 200,
-    radius: 160,
-    description: "CRM, Telegram, платежи и внешние системы.",
+    radius: 220,
+    description: 'CRM, Telegram, платежи и внешние системы.',
   },
-]
+];
 
-const orbitRadii = [100, 160]
+const orbitRadii = [100, 220];
 
-type OrbitParticle = {
-  id: string
-  radius: number
-  angle: number
-}
+const particles = [
+  { id: 'p1', radius: 100, angle: -140 },
+  { id: 'p2', radius: 220, angle: 40 },
+  { id: 'p3', radius: 100, angle: -20 },
+  { id: 'p4', radius: 220, angle: 160 },
+];
 
-const particles: OrbitParticle[] = [
-  { id: "p1", radius: 100, angle: -140 },
-  { id: "p2", radius: 100, angle: 40 },
-  { id: "p3", radius: 160, angle: -20 },
-  { id: "p4", radius: 160, angle: 160 },
-]
+// угловая скорость: внутренние орбиты быстрее
+const orbitSpeed = (radius: number) => BASE_SPEED * Math.pow(100 / radius, 1.5);
+
+const lerp = (min: number, max: number, t: number) => min + (max - min) * t;
 
 const getPosition = (radius: number, angle: number) => {
-  const radians = (angle * Math.PI) / 180
+  const rad = (angle * Math.PI) / 180;
+  const tilt = (TILT * Math.PI) / 180;
+
+  const ex = Math.cos(rad) * radius;
+  const ey = Math.sin(rad) * radius * ORBIT_DEPTH;
 
   return {
-    x:
-      SYSTEM_CENTER +
-      Math.cos(radians) * radius,
-
-    y:
-      SYSTEM_CENTER +
-      Math.sin(radians) * radius * ORBIT_DEPTH,
-  }
-}
-
-const getDepth = (y: number) => {
-  return y / SYSTEM_SIZE
-}
-
-const getNodeScale = (depth: number) => {
-  return (
-    MIN_NODE_SCALE +
-    depth * (MAX_NODE_SCALE - MIN_NODE_SCALE)
-  )
-}
-
-const getNodeOpacity = (depth: number) => {
-  return (
-    MIN_NODE_OPACITY +
-    depth * (MAX_NODE_OPACITY - MIN_NODE_OPACITY)
-  )
-}
+    x: C + ex * Math.cos(tilt) - ey * Math.sin(tilt),
+    y: C + ex * Math.sin(tilt) + ey * Math.cos(tilt),
+    // 0 = дальняя точка орбиты, 1 = ближняя к зрителю
+    depth: (Math.sin(rad) + 1) / 2,
+  };
+};
 
 export default function Hero() {
-  const [nodeAngles, setNodeAngles] = useState(
-    nodes.map((node) => node.angle),
-  )
+  const [time, setTime] = useState(0); // мс
+  const [activeNode, setActiveNode] = useState<string | null>(null);
+  const pausedRef = useRef(false);
 
-  const [particleAngles, setParticleAngles] = useState(
-    particles.map((particle) => particle.angle),
-  )
-
-  const [activeNode, setActiveNode] = useState<string | null>(null)
+  pausedRef.current = activeNode !== null;
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNodeAngles((angles) =>
-        angles.map((angle) => angle + NODES_SPEED),
-      )
+    let raf = 0;
+    let last = performance.now();
 
-      setParticleAngles((angles) =>
-        angles.map((angle) => angle + PARTICLE_SPEED),
-      )
-    }, 30)
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 50);
+      last = now;
 
-    return () => clearInterval(interval)
-  }, [])
+      if (!pausedRef.current) setTime((t) => t + dt);
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const seconds = time / 1000;
+
+  const particleItems = particles.map((p) => {
+    const angle = p.angle + seconds * orbitSpeed(p.radius) * PARTICLE_FACTOR;
+    return { ...p, ...getPosition(p.radius, angle) };
+  });
+
+  const renderParticles = (front: boolean) =>
+    particleItems
+      .filter((p) => p.depth >= 0.5 === front)
+      .map((p) => (
+        <circle
+          key={p.id}
+          cx={p.x}
+          cy={p.y}
+          r={lerp(1, 2.4, p.depth)}
+          fill="white"
+          opacity={lerp(0.15, 0.8, p.depth)}
+        />
+      ));
+
+  const orbitOpacity = activeNode ? 0.03 : 0.08;
 
   return (
     <section className="relative flex min-h-[calc(100vh-89px)] items-center py-20">
@@ -139,8 +145,7 @@ export default function Hero() {
             Берём задачу
             <br />
             и превращаем её
-            <br />
-            в работающий продукт.
+            <br />в работающий продукт.
           </h1>
 
           <p className="mt-8 max-w-xl text-lg leading-relaxed text-white/50">
@@ -153,119 +158,130 @@ export default function Hero() {
           </button>
         </div>
 
-        <div className="flex min-h-[400px] items-center justify-center">
-          <div className="relative h-80 w-80">
+        <div className="flex min-h-[520px] items-center justify-center">
+          <div
+            className="relative"
+            style={{ width: SYSTEM_SIZE, height: SYSTEM_SIZE }}
+          >
+            {/* ЗАДНИЙ слой: орбиты целиком + дальние частицы */}
             <svg
               className="absolute inset-0 h-full w-full"
+              style={{ zIndex: 0 }}
               viewBox={`0 0 ${SYSTEM_SIZE} ${SYSTEM_SIZE}`}
               fill="none"
             >
-              {orbitRadii.map((radius) => (
-                <ellipse
-                  key={radius}
-                  cx={SYSTEM_CENTER}
-                  cy={SYSTEM_CENTER}
-                  rx={radius}
-                  ry={radius * ORBIT_DEPTH}
-                  stroke="white"
-                  strokeOpacity={
-                    activeNode ? "0.03" : "0.06"
-                  }
-                  fill="none"
-                  className="transition-all duration-300"
-                />
-              ))}
-
-              {particles.map((particle, index) => {
-                const position = getPosition(
-                  particle.radius,
-                  particleAngles[index],
-                )
-
-                return (
-                  <circle
-                    key={particle.id}
-                    cx={position.x}
-                    cy={position.y}
-                    r="2"
-                    fill="white"
-                    opacity="0.6"
+              <g transform={`rotate(${TILT} ${C} ${C})`}>
+                {orbitRadii.map((r) => (
+                  <ellipse
+                    key={r}
+                    cx={C}
+                    cy={C}
+                    rx={r}
+                    ry={r * ORBIT_DEPTH}
+                    stroke="white"
+                    strokeOpacity={orbitOpacity}
+                    className="transition-all duration-300"
                   />
-                )
-              })}
+                ))}
+              </g>
+              {renderParticles(false)}
             </svg>
 
-            <div className="absolute left-1/2 top-1/2 flex h-21 w-21 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-white/5 shadow-[0_0_60px_rgba(255,255,255,0.05)]">
+            {/* ЯДРО */}
+            <div
+              className="absolute left-1/2 top-1/2 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-[#0a0a0a] shadow-[0_0_60px_rgba(255,255,255,0.08)]"
+              style={{ zIndex: CORE_Z }}
+            >
               <div className="text-center">
-                <div className="text-xs uppercase tracking-[0.2em] text-white/40">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">
                   Core
                 </div>
-
-                <div className="mt-2 text-lg font-medium">
-                  Product
-                </div>
+                <div className="mt-1 text-lg font-medium">Product</div>
               </div>
             </div>
 
-            {nodes.map((node, index) => {
-              const position = getPosition(
-                node.radius,
-                nodeAngles[index],
-              )
+            {/* НОДЫ */}
+            {nodes.map((node) => {
+              const angle = node.angle + seconds * orbitSpeed(node.radius);
+              const { x, y, depth } = getPosition(node.radius, angle);
 
-              const depth = getDepth(position.y)
-              const baseScale = getNodeScale(depth)
-              const baseOpacity = getNodeOpacity(depth)
+              const isActive = activeNode === node.id;
+              const isDimmed = activeNode !== null && !isActive;
 
-              const isActive = activeNode === node.id
-              const isDimmed =
-                activeNode !== null && !isActive
+              const scale = lerp(MIN_SCALE, MAX_SCALE, depth);
+              const opacity = isActive
+                ? 1
+                : lerp(MIN_OPACITY, MAX_OPACITY, depth);
 
-              const scale = isActive
-                ? baseScale * 1.2
-                : baseScale
-
-              const opacity = isDimmed
-                ? baseOpacity * 0.25
-                : baseOpacity
+              // depth < 0.5 -> за ядром, > 0.5 -> перед ядром
+              const zIndex = isActive ? 200 : Math.round(depth * CORE_Z * 2);
 
               return (
                 <div
                   key={node.id}
-                  className="absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-white/5 text-xs transition-[transform,opacity,border-color,box-shadow] duration-300"
+                  className="absolute"
                   style={{
-                    left: position.x,
-                    top: position.y,
-                    transform: `translate(-50%, -50%) scale(${scale})`,
+                    left: x,
+                    top: y,
+                    zIndex,
                     opacity,
-                    zIndex: Math.round(position.y),
-                    borderColor: isActive
-                      ? "rgba(255,255,255,0.7)"
-                      : "rgba(255,255,255,0.2)",
-                    boxShadow: isActive
-                      ? "0 0 30px rgba(255,255,255,0.15)"
-                      : "none",
+                    transform: `translate(-50%, -50%) scale(${scale})`,
                   }}
                   onMouseEnter={() => setActiveNode(node.id)}
                   onMouseLeave={() => setActiveNode(null)}
                 >
-                  {node.label}
+                  {/* hover-анимации живут отдельно от анимации орбиты */}
+                  <div
+                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border bg-[#0a0a0a] text-xs transition-[transform,opacity,border-color,box-shadow] duration-300"
+                    style={{
+                      transform: isActive ? 'scale(1.2)' : 'scale(1)',
+                      opacity: isDimmed ? 0.3 : 1,
+                      borderColor: isActive
+                        ? 'rgba(255,255,255,0.7)'
+                        : 'rgba(255,255,255,0.2)',
+                      boxShadow: isActive
+                        ? '0 0 30px rgba(255,255,255,0.15)'
+                        : 'none',
+                    }}
+                  >
+                    {node.label}
+                  </div>
 
                   {isActive && (
                     <div className="absolute left-1/2 top-full mt-4 w-52 -translate-x-1/2 rounded-xl border border-white/10 bg-black/80 p-3 text-left text-xs text-white/60 shadow-2xl backdrop-blur-md">
                       <div className="mb-1 font-medium text-white">
                         {node.label}
                       </div>
-
                       <div>{node.description}</div>
                     </div>
                   )}
                 </div>
-              )
+              );
             })}
+
+            {/* ПЕРЕДНИЙ слой: ближние частицы + передняя половина орбит */}
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              style={{ zIndex: CORE_Z + 1 }}
+              viewBox={`0 0 ${SYSTEM_SIZE} ${SYSTEM_SIZE}`}
+              fill="none"
+            >
+              <g transform={`rotate(${TILT} ${C} ${C})`}>
+                {orbitRadii.map((r) => (
+                  <path
+                    key={r}
+                    d={`M ${C - r} ${C} A ${r} ${r * ORBIT_DEPTH} 0 0 0 ${C + r} ${C}`}
+                    stroke="white"
+                    strokeOpacity={orbitOpacity}
+                    className="transition-all duration-300"
+                  />
+                ))}
+              </g>
+              {renderParticles(true)}
+            </svg>
           </div>
         </div>
       </div>
     </section>
-  )
+  );
 }
