@@ -30,7 +30,11 @@ export const orbitSpeed = (radius: number) =>
   BASE_SPEED * Math.pow(REF_RADIUS / radius, 1.5);
 
 /** Позиция тела на сцене через `seconds` секунд после старта */
-export function bodyAt(body: Body, seconds: number, speedFactor = 1): Projected {
+export function bodyAt(
+  body: Body,
+  seconds: number,
+  speedFactor = 1,
+): Projected {
   const radius = ORBITS[body.orbit].radius;
   const angle = body.startAngle + seconds * orbitSpeed(radius) * speedFactor;
   const rad = (angle * Math.PI) / 180;

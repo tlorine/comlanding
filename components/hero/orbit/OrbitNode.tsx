@@ -1,10 +1,5 @@
 import { memo } from 'react';
-import {
-  MAX_OPACITY,
-  MAX_SCALE,
-  MIN_OPACITY,
-  MIN_SCALE,
-} from './config';
+import { MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE } from './config';
 import { lerp, nodeZIndex } from './math';
 import { NODE_ATTR, type NodeHandlers } from './hooks/useActiveNode';
 import { tooltipId } from './NodeTooltip';
