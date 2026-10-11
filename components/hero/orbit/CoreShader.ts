@@ -33,17 +33,60 @@ export type StarUniforms = {
 // ── Vertex shaders ────────────────────────────────────────────────────────
 
 // Plasma sphere vertex: world position needed for 3D noise sampling.
+// Organic silhouette deformation via low-frequency vertex displacement along normals.
+// Scale 0.020 wu⁻¹ → one FBM cell ≈ 50 wu (larger than sphere r=46 → 1–2 bumps
+// visible across the silhouette at any moment). Amplitude ≈ ±0.63 wu ≈ 1.4% of r.
+// Original sphere normal is passed unchanged for lighting (error <1.5% at this amplitude).
 export const plasmaVertexShader = /* glsl */ `
+uniform float uTime;
+
 varying vec3 vNormal;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 
+// ── Displacement noise (separate GLSL program — names independent of fragment) ──
+vec3 dvhash3(vec3 p) {
+  p  = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.xxy + p.yxx) * p.zyx) * 2.0 - 1.0;
+}
+vec3 dvquintic(vec3 t) {
+  return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+float dvnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p), u = dvquintic(f);
+  float n000 = dot(dvhash3(i               ), f               );
+  float n100 = dot(dvhash3(i+vec3(1,0,0)   ), f-vec3(1,0,0)   );
+  float n010 = dot(dvhash3(i+vec3(0,1,0)   ), f-vec3(0,1,0)   );
+  float n110 = dot(dvhash3(i+vec3(1,1,0)   ), f-vec3(1,1,0)   );
+  float n001 = dot(dvhash3(i+vec3(0,0,1)   ), f-vec3(0,0,1)   );
+  float n101 = dot(dvhash3(i+vec3(1,0,1)   ), f-vec3(1,0,1)   );
+  float n011 = dot(dvhash3(i+vec3(0,1,1)   ), f-vec3(0,1,1)   );
+  float n111 = dot(dvhash3(i+vec3(1,1,1)   ), f-vec3(1,1,1)   );
+  return mix(
+    mix(mix(n000,n100,u.x),mix(n010,n110,u.x),u.y),
+    mix(mix(n001,n101,u.x),mix(n011,n111,u.x),u.y),
+    u.z);
+}
+// 2-octave FBM — large-scale only for smooth silhouette deformation.
+// Output range ≈ ±0.45 (0.5 × gnoise + 0.25 × gnoise at gnoise max ≈ 0.60).
+float dvfbm2(vec3 p) {
+  return dvnoise(p) * 0.50
+       + dvnoise(p * 2.1 + vec3(1.7, 9.2, 3.4)) * 0.25;
+}
+
 void main() {
-  vNormal     = normalize(normalMatrix * normal);
-  vec4 wPos   = modelMatrix * vec4(position, 1.0);
+  // Organic silhouette deformation
+  vec3  dispP    = position * 0.020
+                 + vec3(uTime * 0.011, uTime * 0.008, uTime * 0.006);
+  float disp     = dvfbm2(dispP) * 1.4;          // ≈ ±0.63 wu ≈ 1.4% of r=46
+  vec3  displaced = position + normal * disp;
+
+  vNormal     = normalize(normalMatrix * normal); // original normal — lighting unaffected
+  vec4 wPos   = modelMatrix * vec4(displaced, 1.0);
   vWorldPos   = wPos.xyz;
   vViewDir    = normalize(cameraPosition - wPos.xyz);
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
 }
 `;
 
@@ -170,6 +213,14 @@ void main() {
   warpVec.x = gfbm3(warpP)                        - 0.5;
   warpVec.y = gfbm3(warpP + vec3(7.3, 0.0, 0.0))  - 0.5;
   warpVec.z = gfbm3(warpP + vec3(0.0, 5.1, 0.0))  - 0.5;
+  // ── Warp rotation experiment ───────────────────────────────────────────────
+  // Slowly rotates warpVec in the xz-plane. Period ≈ 262 s; small harmonic
+  // breaks periodicity. Effect: p1 sampling direction gradually curls rather
+  // than translating uniformly → features may bend and spiral over time.
+  // To revert: remove these 3 lines.
+  float rotPhi = t * 0.024 + 0.18 * sin(t * 0.070);
+  float cR = cos(rotPhi), sR = sin(rotPhi);
+  warpVec = vec3(warpVec.x * cR - warpVec.z * sR, warpVec.y, warpVec.x * sR + warpVec.z * cR);
 
   // ── Secondary domain warp (independent flow layer for p2) ─────────────────
   vec3 warpP2 = vWorldPos * 0.035 + vec3(-t * 0.018, t * 0.025, -t * 0.011);
@@ -308,11 +359,11 @@ void main() {
 
   // Rim (exp 4.5): tight luminous edge at the silhouette — cool blue-white
   float fRim  = pow(base, 4.5);
-  // Veil (exp 2.2 vs 1.6 prev): meaningfully tighter atmospheric layer.
-  // Reduces the flat round blue-blob: at base=0.5 contribution drops 36%
-  // vs prev; at base=0.3 drops 55% — the inner overlap with the plasma
-  // sphere shrinks significantly, eliminating the "thick outer shell" look.
-  float fVeil = pow(base, 2.2);
+  // Veil (exp 3.5): tight natural falloff — only the outermost limb is lit.
+  // At base=0.5 contribution is 11% vs 22% at exp 2.2 — 50% narrower halo.
+  // At base=0.3: 2.7% vs 8.5% — inner overlap with plasma sphere nearly gone.
+  // Effect: the "plastic ring" disappears; corona reads as atmosphere, not shell.
+  float fVeil = pow(base, 3.5);
 
   // Burst synced with plasma shader
   float burst    = 0.07 * sin(uTime * 0.52)
