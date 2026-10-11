@@ -24,3 +24,33 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+
+/* ── OrbitSystem: surface material for orbit nodes ──────────────────────── */
+/* Radial gradient for circular nodes: upper-left bright spot simulates the  */
+/* same key-light direction as the plasma star (upper-left-front).           */
+/* Nodes read as small spherical bodies orbiting the core — consistent with  */
+/* the plasma star aesthetic. Outer glow on active state adds connection cue.*/
+.node-glass {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(40, 52, 74, 0.92) 0%,
+    rgba(16, 22, 36, 0.96) 60%,
+    rgba(8,  12, 22, 0.98) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 4px 20px rgba(0, 0, 0, 0.55);
+}
+
+/* ── OrbitSystem: плавное появление ────────────────────────────────────── */
+@keyframes orbit-fade-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .orbit-fade-in {
+    animation: orbit-fade-in 1.1s ease-out both;
+  }
+}

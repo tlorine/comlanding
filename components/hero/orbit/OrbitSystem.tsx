@@ -5,11 +5,18 @@ import {
   NODES,
   ORBIT_OPACITY,
   PARTICLES,
-  PARTICLE_FACTOR,
+  PULSE_AMP_1,
+  PULSE_AMP_2,
+  PULSE_FREQ_1,
+  PULSE_FREQ_2,
+  PULSE_PHASE_2,
+  SIGNAL_SPEED,
+  SIGNAL_TAIL_DT,
   SYSTEM_SIZE,
   VIEWBOX,
 } from './config';
 import { bodyAt } from './math';
+
 import { Core } from './Core';
 import { NodeTooltip } from './NodeTooltip';
 import { OrbitNode } from './OrbitNode';
@@ -27,29 +34,37 @@ export function OrbitSystem() {
   const { ref: viewRef, inView } = useInView<HTMLDivElement>();
   const reducedMotion = useReducedMotion();
 
-  // анимация идёт, только если сцена видна, нет reduced-motion и не открыта подсказка
   const seconds = useOrbitClock(inView && !reducedMotion && activeId === null);
 
-  const particles = PARTICLES.map((p) => ({
-    id: p.id,
-    ...bodyAt(p, seconds, PARTICLE_FACTOR),
+  const signals = PARTICLES.map((p) => ({
+    id:   p.id,
+    head: bodyAt(p, seconds, SIGNAL_SPEED),
+    tail: bodyAt(p, Math.max(0, seconds - SIGNAL_TAIL_DT), SIGNAL_SPEED),
   }));
   const placedNodes = NODES.map((node) => ({ node, ...bodyAt(node, seconds) }));
-  const activeNode = placedNodes.find((p) => p.node.id === activeId);
+  const activeNode  = placedNodes.find((p) => p.node.id === activeId);
 
-  const ringOpacity = activeId ? ORBIT_OPACITY.dimmed : ORBIT_OPACITY.idle;
+  // Pulse 0..1 — matches GLSL burst formula in CoreShader.ts (same frequencies).
+  // When reducedMotion or clock is paused, seconds=0 → raw may be non-zero but
+  // we explicitly zero it out to keep the scene fully static.
+  const rawBurst = PULSE_AMP_1 * Math.sin(seconds * PULSE_FREQ_1)
+                 + PULSE_AMP_2 * Math.sin(seconds * PULSE_FREQ_2 + PULSE_PHASE_2);
+  const pulse = reducedMotion ? 0 : Math.max(0, rawBurst) / (PULSE_AMP_1 + PULSE_AMP_2);
+
+  // Ring opacity: base idle level + pulse contribution (dimmed overrides).
+  const ringOpacity = activeId
+    ? ORBIT_OPACITY.dimmed
+    : ORBIT_OPACITY.idle + pulse * 0.06;
 
   return (
     <div
       ref={fitRef}
-      className="flex min-w-0 items-center justify-center lg:min-h-[520px]"
+      className="orbit-fade-in flex min-w-0 items-center justify-center lg:min-h-[610px]"
     >
-      {/* блок занимает в потоке уже уменьшенный размер */}
       <div
         ref={viewRef}
         style={{ width: SYSTEM_SIZE * fit, height: SYSTEM_SIZE * fit }}
       >
-        {/* сама сцена масштабируется от левого верхнего угла */}
         <div
           className="relative origin-top-left"
           style={{
@@ -58,7 +73,7 @@ export function OrbitSystem() {
             transform: `scale(${fit})`,
           }}
         >
-          {/* ЗАДНИЙ слой: дальняя половина орбит + дальние частицы */}
+          {/* Back layer — far halves of orbit rings + far-side particles */}
           <svg
             aria-hidden="true"
             className="absolute inset-0 h-full w-full"
@@ -66,11 +81,11 @@ export function OrbitSystem() {
             viewBox={VIEWBOX}
             fill="none"
           >
-            <OrbitRings part="back" opacity={ringOpacity} />
-            <OrbitParticles items={particles} front={false} />
+            <OrbitRings part="back" opacity={ringOpacity} pulse={pulse} />
+            <OrbitParticles items={signals} front={false} />
           </svg>
 
-          <Core />
+          <Core reducedMotion={reducedMotion} inView={inView} />
 
           {placedNodes.map(({ node, x, y, depth }) => (
             <OrbitNode
@@ -82,6 +97,7 @@ export function OrbitSystem() {
               isActive={activeId === node.id}
               isDimmed={activeId !== null && activeId !== node.id}
               handlers={bind(node.id)}
+              pulse={pulse}
             />
           ))}
 
@@ -93,7 +109,7 @@ export function OrbitSystem() {
             />
           )}
 
-          {/* ПЕРЕДНИЙ слой: ближняя половина орбит + ближние частицы */}
+          {/* Front layer — near halves of orbit rings + near-side particles */}
           <svg
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 h-full w-full"
@@ -101,8 +117,8 @@ export function OrbitSystem() {
             viewBox={VIEWBOX}
             fill="none"
           >
-            <OrbitRings part="front" opacity={ringOpacity} />
-            <OrbitParticles items={particles} front />
+            <OrbitRings part="front" opacity={ringOpacity} pulse={pulse} />
+            <OrbitParticles items={signals} front />
           </svg>
         </div>
       </div>

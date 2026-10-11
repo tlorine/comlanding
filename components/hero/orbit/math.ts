@@ -7,8 +7,10 @@ import {
   ORBIT_DEPTH,
   ORBITS,
   TILT_DEG,
+  WOBBLE_AMP,
+  WOBBLE_FREQ,
 } from './config';
-import type { Body, Projected } from './types';
+import type { Body, OrbitId, Projected } from './types';
 
 // Должен совпадать с rotate(TILT_DEG) в OrbitRings
 const TILT = (TILT_DEG * Math.PI) / 180;
@@ -36,7 +38,10 @@ export function bodyAt(
   speedFactor = 1,
 ): Projected {
   const radius = ORBITS[body.orbit].radius;
-  const angle = body.startAngle + seconds * orbitSpeed(radius) * speedFactor;
+  // Уникальная фаза для каждого тела — орбиты дрейфуют независимо
+  const phase  = body.startAngle * 0.017;
+  const wobble = WOBBLE_AMP * Math.sin(seconds * WOBBLE_FREQ + phase);
+  const angle  = body.startAngle + seconds * orbitSpeed(radius) * speedFactor + wobble;
   const rad = (angle * Math.PI) / 180;
 
   const ex = Math.cos(rad) * radius;
@@ -52,3 +57,19 @@ export function bodyAt(
 /** Активная нода всегда сверху, остальные раскладываются вокруг ядра */
 export const nodeZIndex = (depth: number, isActive: boolean) =>
   isActive ? ACTIVE_NODE_Z : Math.round(depth * CORE_Z * 2);
+
+/** Статичная позиция точки на орбите в заданном угле (без зависимости от времени) */
+export function orbitPoint(
+  orbit: OrbitId,
+  angleDeg: number,
+): { x: number; y: number; depth: number } {
+  const radius = ORBITS[orbit].radius;
+  const rad = (angleDeg * Math.PI) / 180;
+  const ex = Math.cos(rad) * radius;
+  const ey = Math.sin(rad) * radius * ORBIT_DEPTH;
+  return {
+    x: CENTER + ex * COS - ey * SIN,
+    y: CENTER + ex * SIN + ey * COS,
+    depth: (Math.sin(rad) + 1) / 2,
+  };
+}
