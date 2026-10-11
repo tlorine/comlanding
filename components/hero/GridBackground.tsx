@@ -315,7 +315,9 @@ export function GridBackground() {
       // is imperceptible across the 8.1 s period.
       const rawBurst = PULSE_AMP_1 * Math.sin(elapsed * PULSE_FREQ_1)
                      + PULSE_AMP_2 * Math.sin(elapsed * PULSE_FREQ_2 + PULSE_PHASE_2);
-      const pulse = Math.max(0, rawBurst) / (PULSE_AMP_1 + PULSE_AMP_2);
+      // 2-second fade-in matches OrbitSystem.tsx pulseFadeIn ramp.
+      const rampIn = Math.min(1, elapsed / 2.0);
+      const pulse = rampIn * Math.max(0, rawBurst) / (PULSE_AMP_1 + PULSE_AMP_2);
 
       redraw(pulse);
 

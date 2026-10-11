@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { AdditiveBlending, Euler, ShaderMaterial, type Group, type Mesh } from 'three';
+import { AdditiveBlending, Euler, PerspectiveCamera, ShaderMaterial, type Group, type Mesh } from 'three';
 import { useRef } from 'react';
 import {
   coronaFragmentShader,
@@ -30,6 +30,30 @@ const TUBE_RING = 1.2;
 
 // ~64° tilt: reads as a meridional orbital marker, not an equatorial halo.
 const RING_TILT = new Euler(1.12, 0, 0.28);
+
+// ── Aspect ratio guard ────────────────────────────────────────────────────
+// The Canvas lives inside transform:scale(fit). Browser zoom triggers a resize
+// event; some R3F resize paths read getBoundingClientRect() which includes the
+// parent CSS transform. If at that moment width and height differ by even one
+// subpixel (rounding at non-100% zoom levels), camera.aspect is set to a
+// value ≠ 1 and the sphere appears permanently squished until page reload.
+//
+// This component re-asserts aspect=1 after every R3F resize (indicated by a
+// change in the `size` value from useThree). The canvas is always square
+// (CORE_SIZE × CORE_SIZE), so aspect is always 1 by definition.
+
+function AspectGuard() {
+  const { camera, size, invalidate } = useThree();
+  useEffect(() => {
+    const cam = camera as PerspectiveCamera;
+    if (Math.abs(cam.aspect - 1) > 1e-4) {
+      cam.aspect = 1;
+      cam.updateProjectionMatrix();
+      invalidate(); // trigger re-render with corrected projection
+    }
+  }, [camera, size, invalidate]);
+  return null;
+}
 
 // ── Animated mesh group ───────────────────────────────────────────────────
 
@@ -68,6 +92,7 @@ function CoreMesh({ reducedMotion }: CoreMeshProps) {
 
   const groupRef = useRef<Group | null>(null);
   const ringRef  = useRef<Mesh  | null>(null);
+  const timeRef  = useRef(0);
 
   const { invalidate } = useThree();
 
@@ -87,12 +112,21 @@ function CoreMesh({ reducedMotion }: CoreMeshProps) {
     if (reducedMotion) return;
     const d = Math.min(delta, 0.05);
 
-    // Advance shader clock — drives noise drift, Fresnel pulse, corona pulse.
-    uniforms.uTime.value = state.clock.elapsedTime;
+    // Accumulate time with clamped delta — prevents jump on tab return.
+    // state.clock.elapsedTime accumulates real wall time including background
+    // periods, causing the shader to teleport to a new noise state on resume.
+    timeRef.current += d;
+    uniforms.uTime.value = timeRef.current;
 
-    // Slow whole-assembly rotation: plasma flows as surface moves through
-    // the noise field (~70 s cycle at 0.09 rad/s).
-    if (groupRef.current) groupRef.current.rotation.y += 0.09 * d;
+    // Organic rotation: two-harmonic wobble adds ±25% variation over
+    // periods of ~37 s and ~14 s — feels alive rather than mechanically constant.
+    if (groupRef.current) {
+      const et = timeRef.current;
+      const rotSpeed = 0.09
+        + 0.022 * Math.sin(et * 0.17)
+        + 0.012 * Math.sin(et * 0.43);
+      groupRef.current.rotation.y += rotSpeed * d;
+    }
 
     // Ring precesses independently — orbital motion cue.
     if (ringRef.current) ringRef.current.rotation.y += 0.45 * d;
@@ -145,7 +179,7 @@ export type CoreSceneProps = {
 export function CoreScene({ reducedMotion, inView }: CoreSceneProps) {
   return (
     <Canvas
-      frameloop={inView && !reducedMotion ? 'always' : 'demand'}
+      frameloop={reducedMotion ? 'demand' : 'always'}
       camera={{ position: [0, 0, 155], fov: 46, near: 0.1, far: 1000 }}
       gl={{
         alpha:           true,
@@ -156,6 +190,7 @@ export function CoreScene({ reducedMotion, inView }: CoreSceneProps) {
       dpr={[1, 2]}
       style={{ background: 'transparent' }}
     >
+      <AspectGuard />
       <CoreMesh reducedMotion={reducedMotion} />
     </Canvas>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   CORE_Z,
   NODES,
@@ -30,7 +31,19 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 
 export function OrbitSystem() {
   const { activeId, bind } = useActiveNode();
-  const { ref: fitRef, fit } = useFitScale<HTMLDivElement>(SYSTEM_SIZE);
+  const { ref: fitRef, fit: fitW } = useFitScale<HTMLDivElement>(SYSTEM_SIZE);
+
+  // Height-based fit — uses window.innerHeight directly to avoid the
+  // feedback loop that occurs when reading clientHeight of a scaled element.
+  const [hFit, setHFit] = useState(1);
+  useEffect(() => {
+    const update = () => setHFit(Math.min(1, (window.innerHeight * 0.60) / SYSTEM_SIZE));
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  const fit = Math.min(fitW, hFit);
   const { ref: viewRef, inView } = useInView<HTMLDivElement>();
   const reducedMotion = useReducedMotion();
 
@@ -49,7 +62,10 @@ export function OrbitSystem() {
   // we explicitly zero it out to keep the scene fully static.
   const rawBurst = PULSE_AMP_1 * Math.sin(seconds * PULSE_FREQ_1)
                  + PULSE_AMP_2 * Math.sin(seconds * PULSE_FREQ_2 + PULSE_PHASE_2);
-  const pulse = reducedMotion ? 0 : Math.max(0, rawBurst) / (PULSE_AMP_1 + PULSE_AMP_2);
+  // 2-second fade-in prevents the initial flash from the non-zero burst at t=0
+  // (burst formula evaluates to ~0.069 at t=0 due to PULSE_PHASE_2=2.10).
+  const pulseFadeIn = Math.min(1, seconds / 2.0);
+  const pulse = reducedMotion ? 0 : pulseFadeIn * Math.max(0, rawBurst) / (PULSE_AMP_1 + PULSE_AMP_2);
 
   // Ring opacity: base idle level + pulse contribution (dimmed overrides).
   const ringOpacity = activeId
@@ -59,11 +75,11 @@ export function OrbitSystem() {
   return (
     <div
       ref={fitRef}
-      className="orbit-fade-in flex min-w-0 items-center justify-center lg:min-h-[610px]"
+      className="orbit-fade-in flex min-w-0 max-h-[60vh] items-center justify-center"
     >
       <div
         ref={viewRef}
-        style={{ width: SYSTEM_SIZE * fit, height: SYSTEM_SIZE * fit }}
+        style={{ width: SYSTEM_SIZE * fit, height: SYSTEM_SIZE * fit, overflow: 'hidden' }}
       >
         <div
           className="relative origin-top-left"

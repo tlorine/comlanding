@@ -9,7 +9,7 @@ export default function Home() {
       <Header />
       <Hero />
 
-      <section aria-labelledby="services-title">
+      <section id="services" aria-labelledby="services-title">
         <div className="mb-10 flex items-end justify-between gap-4">
           <h2 id="services-title" className="text-4xl font-bold">
             {SERVICES_CONTENT.title}

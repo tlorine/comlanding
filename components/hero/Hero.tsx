@@ -9,7 +9,7 @@ export default function Hero() {
   const { title, description, cta } = HERO_CONTENT;
 
   return (
-    <section className="relative isolate flex items-center py-12 lg:py-16">
+    <section className="relative isolate flex items-center py-12">
       <GridBackground />
       <div className="grid min-w-0 w-full grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <div className="min-w-0">
@@ -17,7 +17,7 @@ export default function Hero() {
             {title}
           </h1>
 
-          <p className="mt-8 max-w-xl text-lg leading-relaxed text-white/50">
+          <p className="mt-8 max-w-xl text-lg leading-relaxed text-white/55">
             {description}
           </p>
 

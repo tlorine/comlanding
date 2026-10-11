@@ -38,7 +38,7 @@ export const OrbitParticles = memo(function OrbitParticles({
             gradientUnits="userSpaceOnUse"
           >
             <stop offset="0%" stopColor={SIG_COLOR} stopOpacity={0} />
-            <stop offset="100%" stopColor={SIG_COLOR} stopOpacity={lerp(0.20, 0.65, head.depth)} />
+            <stop offset="100%" stopColor={SIG_COLOR} stopOpacity={lerp(0.16, 0.55, head.depth)} />
           </linearGradient>
         ))}
       </defs>
@@ -50,15 +50,15 @@ export const OrbitParticles = memo(function OrbitParticles({
             x2={head.x}
             y2={head.y}
             stroke={`url(#sig-${id}-${front ? 'f' : 'b'})`}
-            strokeWidth={lerp(0.6, 1.8, head.depth)}
+            strokeWidth={lerp(0.5, 1.5, head.depth)}
             strokeLinecap="round"
           />
           <circle
             cx={head.x}
             cy={head.y}
-            r={lerp(1.0, 2.4, head.depth)}
+            r={lerp(0.8, 1.9, head.depth)}
             fill={SIG_COLOR}
-            opacity={lerp(0.28, 0.82, head.depth)}
+            opacity={lerp(0.22, 0.68, head.depth)}
           />
         </g>
       ))}

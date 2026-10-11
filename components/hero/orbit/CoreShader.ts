@@ -166,77 +166,113 @@ float gfbm3(vec3 p) {
 void main() {
   float t = uTime;
 
-  // ── Vec3 domain warp ─────────────────────────────────────────────────────
-  // Three independent gfbm3 evaluations produce a full 3D displacement field.
-  // Each axis uses a spatially-offset seed → genuinely independent patterns.
-  // Magnitude 2.0 wu/noise-unit at scale 0.025 → max displacement ±1.0 noise
-  // unit at the primary plasma scale (0.082) — coherent but not amorphous.
-  // Slow warpP drift (0.014/s) lets the flow direction itself evolve over ~45 s.
-  vec3 warpP = vWorldPos * 0.025 + vec3(t * 0.014, t * 0.010, t * 0.007);
+  // ── Primary domain warp ───────────────────────────────────────────────────
+  vec3 warpP = vWorldPos * 0.022 + vec3(t * 0.031, t * 0.022, t * 0.015);
   vec3 warpVec;
-  warpVec.x = gfbm3(warpP)                       - 0.5;
-  warpVec.y = gfbm3(warpP + vec3(7.3, 0.0, 0.0)) - 0.5;
-  warpVec.z = gfbm3(warpP + vec3(0.0, 5.1, 0.0)) - 0.5;
-  // warpVec ∈ [−0.5, +0.5]; multiply by 2.0 → ±1.0 noise unit at primary scale.
+  warpVec.x = gfbm3(warpP)                        - 0.5;
+  warpVec.y = gfbm3(warpP + vec3(7.3, 0.0, 0.0))  - 0.5;
+  warpVec.z = gfbm3(warpP + vec3(0.0, 5.1, 0.0))  - 0.5;
 
-  // ── Layer 1: primary plasma (finer scale, vec3-domain-warped) ────────────
-  vec3 p1 = vWorldPos * 0.082 + vec3(t * 0.055, t * 0.038, t * 0.030);
-  p1 += warpVec * 2.0;
+  // ── Secondary domain warp (independent flow layer for p2) ─────────────────
+  vec3 warpP2 = vWorldPos * 0.035 + vec3(-t * 0.018, t * 0.025, -t * 0.011);
+  vec3 warpVec2;
+  warpVec2.x = gfbm3(warpP2 + vec3(3.1, 0.0, 0.0)) - 0.5;
+  warpVec2.y = gfbm3(warpP2 + vec3(0.0, 4.7, 0.0)) - 0.5;
+  warpVec2.z = gfbm3(warpP2 + vec3(0.0, 0.0, 6.3)) - 0.5;
 
-  // ── Layer 2: fine detail (no warp, independent drift axes) ───────────────
-  vec3 p2 = vWorldPos * 0.062 + vec3(-t * 0.042, t * 0.052, -t * 0.024)
+  float warpAmp  = 1.55 + 0.50 * sin(t * 0.09 + 0.8) + 0.22 * sin(t * 0.23 + 2.1);
+  float warpAmp2 = 0.90 + 0.32 * sin(t * 0.13 + 3.2) + 0.14 * sin(t * 0.31 + 0.5);
+
+  // ── Two-layer counter-shear plasma ───────────────────────────────────────
+  vec3 p1 = vWorldPos * 0.075 + vec3(t * 0.115, t * 0.078, t * 0.052);
+  p1 += warpVec * warpAmp;
+
+  vec3 p2 = vWorldPos * 0.058 + vec3(-t * 0.095, t * 0.125, -t * 0.060)
             + vec3(5.1, 2.7, 8.3);
+  p2 += warpVec2 * warpAmp2;
 
-  float plasma = gfbm5(p1) * 0.65 + gfbm5(p2) * 0.35;
+  float blend1 = 0.50 + 0.17 * sin(t * 0.11 + 1.4) + 0.06 * sin(t * 0.27 + 0.6);
+  float v1 = gfbm5(p1);
+  float v2 = gfbm5(p2);
+  float interact = v1 * v2;
+  float plasma   = clamp(v1 * blend1 + v2 * (1.0 - blend1) + interact * 0.22, 0.0, 1.0);
 
-  // ── Organic energy burst — computed before color ramp ────────────────────
-  // burstN: normalised positive-only burst level (0..1).
-  // Drives hot-spot expansion, vein brightness, and rim amplification so the
-  // sphere visually changes plasma state at peak — not just uniform brightness.
-  // Matches PULSE_FREQ_1/2 in config.ts for cross-component synchronisation.
-  float burst  = 0.12 * sin(t * 0.78)
-               + 0.08 * sin(t * 1.23 + 2.10);
-  float burstN = clamp(max(0.0, burst) / 0.20, 0.0, 1.0);
+  // Fine-detail modulation from layer difference — zero cost (v1, v2 already computed).
+  // Where one flow layer is hotter than the other, the surface brightens or dims.
+  // Gate: only active in mid-to-bright zone (0.30..0.62), never in dark voids.
+  // Effect: micro-variation tracks the independently moving layers → structures
+  // look like they're changing character (heating/cooling) not just translating.
+  float plasmaFine = clamp(plasma + (v1 - v2) * 0.15 * smoothstep(0.30, 0.62, plasma), 0.0, 1.0);
 
-  // ── Colour ramp: 4 stops — hot zone expands at peak burst ────────────────
-  // At rest:  hot threshold 0.64–0.82 → ~20% of surface shows hot spots.
-  // At peak:  hot threshold 0.50–0.68 → ~50% of surface shows hot spots.
-  // The whole plasma surface visibly brightens and shifts toward cHot.
-  vec3 cDark   = vec3(0.004, 0.016, 0.120);   // deep cold navy
-  vec3 cMid    = vec3(0.060, 0.280, 1.000);   // saturated electric blue
-  vec3 cBright = vec3(0.520, 0.820, 1.000);   // cold white-blue
-  vec3 cHot    = vec3(0.920, 0.970, 1.000);   // near-white hot spots
+  // ── Organic pulsation ─────────────────────────────────────────────────────
+  float burst  = 0.07 * sin(t * 0.52) + 0.04 * sin(t * 0.91 + 2.10);
+  float burstN = clamp(max(0.0, burst) / 0.11, 0.0, 1.0);
 
-  vec3 col = mix(cDark,   cMid,    smoothstep(0.22, 0.48, plasma));
-  col      = mix(col,     cBright, smoothstep(0.46, 0.66, plasma));
+  // ── Colour ramp — five stops ──────────────────────────────────────────────
+  // cMid: slightly more chromatic (reduced r/g relative to b vs previous).
+  // cHot: cooler — red reduced to 0.56 from 0.68. The previous warm-white hot
+  //   spots read as generic game VFX fire; cool icy-blue peaks read as plasma.
+  // Large-scale structure (cVoid→cMid): smooth plasma, no fine noise bleed.
+  // Detail zone (cBright→cHot): plasmaFine — hot-spots track the flow layers.
+  vec3 cVoid   = vec3(0.001, 0.004, 0.040);
+  vec3 cDeep   = vec3(0.010, 0.058, 0.310);
+  vec3 cMid    = vec3(0.028, 0.158, 0.818);
+  vec3 cBright = vec3(0.200, 0.590, 1.000);
+  vec3 cHot    = vec3(0.560, 0.840, 1.000);
+
+  vec3 col = mix(cVoid,   cDeep,   smoothstep(0.10, 0.32, plasma));
+  col      = mix(col,     cMid,    smoothstep(0.28, 0.52, plasma));
+  col      = mix(col,     cBright, smoothstep(0.46, 0.68, plasmaFine));
   float hotLo = mix(0.64, 0.50, burstN);
   float hotHi = mix(0.82, 0.68, burstN);
-  col      = mix(col,     cHot,    smoothstep(hotLo, hotHi, plasma));
+  col      = mix(col,     cHot,    smoothstep(hotLo, hotHi, plasmaFine));
 
-  // ── Vein / discharge filaments — brighter at peak burst ──────────────────
-  // 0.80 at rest → 1.50 at peak: discharge streaks visibly intensify.
-  float ridgeVal = abs(gfbm5(p2 + vec3(3.7, 1.4, 6.2)) - 0.5);
-  float vein     = pow(max(0.0, 0.04 - ridgeVal) / 0.04, 2.0);
-  col += vec3(0.30, 0.72, 1.00) * vein * (0.80 + burstN * 0.70);
-
-  // ── Rim: two-component silhouette definition ─────────────────────────────
-  // rimBoost 1.0..1.55 — rim broadens/brightens at peak, sphere appears to
-  // genuinely emit more light toward the observer.
+  // ── Deep inner radiance — volumetric depth ────────────────────────────────
+  // Stronger than previous (0.30 vs 0.22) and slightly richer colour.
+  // NdotV² peaks sharply at the directly-viewed centre and tapers to zero at
+  // the limb — creates the impression of a luminous interior seen through
+  // translucent plasma rather than a texture mapped on a solid ball.
   float NdotV    = max(dot(vNormal, vViewDir), 0.0);
   float oneMinNV = 1.0 - NdotV;
-  float rimBoost = 1.0 + burstN * 0.55;
-  float rimTight = pow(oneMinNV, 11.0) * 4.50 * rimBoost;
-  float rimBroad = pow(oneMinNV,  2.2) * 0.65 * rimBoost;
-  col += vec3(0.55, 0.88, 1.00) * rimTight;
-  col += vec3(0.08, 0.36, 1.00) * rimBroad;
+  float faceGlow = NdotV * NdotV * 0.30;
+  col += vec3(0.008, 0.040, 0.300) * faceGlow;
 
-  // ── Luminosity floor — deep blue, never pure black ───────────────────────
-  col = max(col, vec3(0.006, 0.018, 0.075));
+  // ── Edge layers ──────────────────────────────────────────────────────────
+  float rimBoost = 1.0 + burstN * 0.28;
 
-  // ── Final brightness modulation ───────────────────────────────────────────
-  // Coefficient reduced to 0.70: internal structural changes (hot-spot expansion,
-  // rim boost) already contribute meaningful luminance at peak.
-  col *= 1.0 + burst * 0.70 + 0.04 * sin(t * 2.37 + 1.9);
+  float innerGlow = pow(oneMinNV, 3.5) * 0.10 * rimBoost;
+  col += vec3(0.04, 0.22, 0.88) * innerGlow;
+
+  // Chromosphere: organic variation from warp field (stronger than before:
+  // ±0.14 + ±0.08 = ±0.22 range). Surface brightness tracking via chromSurf:
+  // the rim is ~12% brighter over hot plasma zones, dimmer over dark voids —
+  // physically motivated (hot plasma emits more edge light) and eliminates
+  // the uniform painted-ring appearance.
+  float edgeOrg   = 1.0 + warpVec.y * 0.28 + warpVec2.x * 0.16;
+  float chromSurf = 0.80 + v1 * 0.30;
+  float chrom     = pow(oneMinNV, 7.0) * 1.20 * rimBoost * edgeOrg * chromSurf;
+  col += vec3(0.26, 0.68, 1.00) * chrom;
+
+  // ── Dual-lobe surface sheen ───────────────────────────────────────────────
+  // Single Blinn-Phong lobe reads as a solid ball under a point light.
+  // Two lobes simulate the complex light interaction of a liquid plasma surface:
+  //   Broad (exp 10): ambient wet sheen across mid-to-bright flow areas —
+  //     the diffuse scattering of self-emission just below the visible surface.
+  //   Sharp (exp 52): precise specular glint only on the brightest plasma zones —
+  //     a directional catchlight that moves with the surface flow structure.
+  vec3  keyDir    = normalize(vec3(-0.55, 0.75, 0.55));
+  vec3  halfDir   = normalize(keyDir + vViewDir);
+  float NdotH     = max(dot(vNormal, halfDir), 0.0);
+  float specBroad = pow(NdotH, 10.0) * 0.09 * smoothstep(0.30, 0.60, plasmaFine);
+  float specSharp = pow(NdotH, 52.0) * 0.24 * smoothstep(0.54, 0.82, plasmaFine);
+  col += vec3(0.42, 0.65, 1.00) * specBroad
+       + vec3(0.82, 0.94, 1.00) * specSharp;
+
+  // ── Luminosity floor ──────────────────────────────────────────────────────
+  col = max(col, vec3(0.001, 0.004, 0.032));
+
+  // ── Slow breathing modulation ─────────────────────────────────────────────
+  col *= 1.0 + burst * 0.30 + 0.013 * sin(t * 2.37 + 1.9);
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -244,10 +280,17 @@ void main() {
 
 // ── Corona fragment shader ────────────────────────────────────────────────
 //
-// Wider Fresnel exponent (1.8 vs previous 2.5) → thicker atmospheric halo.
-// Brightness raised (0.62 vs 0.45) → more visible outer glow.
-// Combined with CSS drop-shadow on the Core container, the light "spills"
-// beyond the 256 px canvas onto the SVG orbit rings and grid background.
+// Two-layer Fresnel redesign: tight bright rim + wide dim veil.
+//
+// Previous: inner exp 1.2 (very wide, bright) → thick neon ring.
+// New layout:
+//   fRim  (exp 4.5, bright): precise luminous edge at the silhouette only
+//   fVeil (exp 1.2, very dim): faint wide atmospheric scattering halo
+//
+// The plasma sphere's chromosphere (exp 7.5 in plasmaFragment) handles the
+// tightest edge; the corona adds a second softer glow layer just beyond it.
+// Overall coroMult reduced (0.38 base vs 0.62) — less total corona brightness,
+// more controlled. Burst synced with plasma shader frequencies.
 
 export const coronaFragmentShader = /* glsl */ `
 uniform float uTime;
@@ -255,18 +298,32 @@ varying vec3 vNormal;
 varying vec3 vViewDir;
 
 void main() {
-  float NdotV   = max(dot(vNormal, vViewDir), 0.0);
-  // Exponent 1.8: wider, softer halo than the sharper limb glow in plasma shader.
-  float fresnel = pow(1.0 - NdotV, 1.8);
-  // Burst: same formula as plasma shader — corona brightens in lock-step.
-  // max(0) ensures corona only amplifies on positive burst cycles.
-  float burst   = 0.12 * sin(uTime * 0.78)
-                + 0.08 * sin(uTime * 1.23 + 2.10);
-  // Baseline 0.62; at burst peak (+0.20) → corona × 1.75 vs baseline.
-  float coroMult = 0.62 + max(0.0, burst) * 1.8;
-  // Slow independent breathing (92% phase offset) adds sub-harmonic life.
-  float breathe  = 1.0 + 0.08 * sin(uTime * 0.92 + 1.2);
-  vec3  col      = vec3(0.06, 0.30, 1.00) * fresnel * coroMult * breathe;
-  gl_FragColor   = vec4(col, 1.0);
+  float NdotV = max(dot(vNormal, vViewDir), 0.0);
+  float base  = 1.0 - NdotV;
+
+  // Rim (exp 4.5): tight luminous edge at the silhouette — cool blue-white
+  float fRim  = pow(base, 4.5);
+  // Veil (exp 1.6 vs 1.2 prev): slightly tighter atmospheric scatter —
+  // reduces the flat round blue-blob appearance while keeping ambient glow.
+  float fVeil = pow(base, 1.6);
+
+  // Burst synced with plasma shader
+  float burst    = 0.07 * sin(uTime * 0.52)
+                 + 0.04 * sin(uTime * 0.91 + 2.10);
+  float coroMult = 0.44 + max(0.0, burst) * 1.15;
+  float breathe  = 1.0 + 0.06 * sin(uTime * 0.92 + 1.2)
+                       + 0.03 * sin(uTime * 0.37 + 0.8);
+
+  // Rim pulsation: decoupled from veil for layered halo breathing
+  float rimPulse = 1.0 + 0.10 * sin(uTime * 0.67 + 0.5);
+
+  // Rim: cooler hue (less green: 0.60 vs 0.68) — no warm-cyan neon look.
+  // Veil: richer deep blue (0.82 b vs 0.75), slightly reduced coeff (0.20 vs 0.24)
+  //   — more controlled ambient scatter, less visual mass.
+  vec3 col = (vec3(0.24, 0.60, 1.00) * fRim  * 0.90 * rimPulse
+            + vec3(0.03, 0.10, 0.82) * fVeil * 0.20)
+           * coroMult * breathe;
+
+  gl_FragColor = vec4(col, 1.0);
 }
 `;

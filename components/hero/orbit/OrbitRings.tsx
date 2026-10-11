@@ -32,11 +32,31 @@ export const OrbitRings = memo(function OrbitRings({ part, opacity, pulse }: Pro
 
   return (
     <>
-      {/* Radial gradient definition for Core pulse illumination overlay.
-          Centered at Core position (userSpaceOnUse → rotated coordinate space).
-          Defined here so it sits in the same SVG as the front arc paths. */}
-      {part === 'front' && (
-        <defs>
+      <defs>
+        {/* Arc endpoint fade gradients — one per orbit per part.
+            Fades each half-arc's stroke to transparent at both endpoints
+            (the equatorial crossing points where front and back halves meet).
+            Eliminates the hard opacity seam between FRONT_MULT and BACK_MULT zones.
+            gradientUnits="userSpaceOnUse" → coordinates are in the rotated space
+            of the referencing path, so x1/x2 correctly align with arc endpoints. */}
+        {Object.values(ORBITS).map(({ radius: r }) => (
+          <linearGradient
+            key={r}
+            id={`orbit-fade-${r}-${part}`}
+            x1={CENTER - r}
+            y1={CENTER}
+            x2={CENTER + r}
+            y2={CENTER}
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%"   stopColor={RING_COLOR} stopOpacity={0} />
+            <stop offset="9%"   stopColor={RING_COLOR} stopOpacity={1} />
+            <stop offset="91%"  stopColor={RING_COLOR} stopOpacity={1} />
+            <stop offset="100%" stopColor={RING_COLOR} stopOpacity={0} />
+          </linearGradient>
+        ))}
+        {/* Pulse illumination radial gradient — front arc only */}
+        {part === 'front' && (
           <radialGradient
             id="ring-core-pulse"
             cx={CENTER}
@@ -48,8 +68,8 @@ export const OrbitRings = memo(function OrbitRings({ part, opacity, pulse }: Pro
             <stop offset="55%"  stopColor="rgb(100,170,255)" stopOpacity={pulse * 0.20} />
             <stop offset="100%" stopColor="rgb(100,170,255)" stopOpacity={0} />
           </radialGradient>
-        </defs>
-      )}
+        )}
+      </defs>
 
       {/* Tilted ring paths */}
       <g transform={`rotate(${TILT_DEG} ${CENTER} ${CENTER})`}>
@@ -64,10 +84,11 @@ export const OrbitRings = memo(function OrbitRings({ part, opacity, pulse }: Pro
                 strokeOpacity={0.07}
               />
             )}
-            {/* Основная полудуга */}
+            {/* Основная полудуга — gradient handles endpoint fade,
+                strokeOpacity handles front/back brightness ratio */}
             <path
               d={`M ${CENTER - r} ${CENTER} A ${r} ${r * ORBIT_DEPTH} 0 0 ${sweep} ${CENTER + r} ${CENTER}`}
-              stroke={RING_COLOR}
+              stroke={`url(#orbit-fade-${r}-${part})`}
               strokeWidth={0.85}
               strokeOpacity={Math.min(opacity * arcMult, 1)}
               style={{ transition: 'stroke-opacity 300ms' }}
