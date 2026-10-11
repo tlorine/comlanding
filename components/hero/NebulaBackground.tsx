@@ -18,6 +18,7 @@
 // z-index: −2 (behind grid canvas at −1 and all content at ≥ 0).
 
 import { useEffect, useRef } from 'react';
+import { lensDisplaceUV, LENS_NEBULA_UV_K } from './lens';
 
 // ── Noise primitives ────────────────────────────────────────────────────────
 
@@ -115,10 +116,15 @@ function renderNebula(canvas: HTMLCanvasElement, w: number, h: number): void {
       const mask = Math.max(0, 1.0 - r / 0.54);
       if (mask < 0.004) continue;
 
+      // Gravitational-lens magnification: sample from a position displaced
+      // inward — the rendered pixel appears to show denser nebula from closer
+      // to the lens centre → apparent outward expansion around the sphere.
+      const [lu, lv] = lensDisplaceUV(u, v, LENS_NEBULA_UV_K);
+
       // Noise-space coordinates: aspect-corrected, offset to a non-degenerate
       // region of the noise field (avoid near-zero symmetry axes)
-      const nx = (u - CX) * aspect * 3.5 + 3.0;
-      const ny = (v - CY) * 3.5        + 7.0;
+      const nx = (lu - CX) * aspect * 3.5 + 3.0;
+      const ny = (lv - CY) * 3.5          + 7.0;
 
       const raw = nebulaField(nx, ny);
 

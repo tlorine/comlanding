@@ -43,6 +43,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useReducedMotion } from './hooks/useReducedMotion';
+import { lensDisplace, LENS_FLOOR_K } from './lens';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -67,6 +68,9 @@ const S_COLS = 30;
 // With FLOOR_EXT = 2 and VP_X0 = 0.5 the floor spans the full canvas
 // width for all floor rows with t ≥ 0.20 (rows 5–12 out of 12).
 const FLOOR_EXT = 2;
+
+// Gravitational-lens floor-line distortion
+const LENS_SEGS = 12; // segments per floor line
 
 const PERSP_EXP = 1.85;
 
@@ -144,6 +148,34 @@ function drawGrid(
     ctx.stroke();
   }
 
+  // ── Lens-distorted floor line helper ─────────────────────────────────────
+  // Splits the line [xl, y] → [xr, y] into LENS_SEGS segments; each vertex
+  // is displaced radially outward by the lens profile → floor curves away
+  // from the sphere boundary, reading as a gravitational-lens warp.
+  function drawFloorLine(
+    xl: number, xr: number, y: number,
+    style: string | CanvasGradient,
+    lw: number,
+    withShadow: boolean,
+  ): void {
+    if (withShadow) {
+      ctx.save();
+      ctx.shadowColor = `rgba(${CR},${CG},${CB},0.18)`;
+      ctx.shadowBlur  = 4;
+    }
+    ctx.strokeStyle = style;
+    ctx.lineWidth   = lw;
+    ctx.beginPath();
+    for (let s = 0; s <= LENS_SEGS; s++) {
+      const tx = s / LENS_SEGS;
+      const rx = xl + (xr - xl) * tx;
+      const [dx, dy] = lensDisplace(rx, y, W, H, LENS_FLOOR_K);
+      if (s === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
+    }
+    ctx.stroke();
+    if (withShadow) ctx.restore();
+  }
+
   // ── Primary floor horizontal lines ───────────────────────────────────────
   for (let i = 1; i <= P_ROWS; i++) {
     const t  = (i / P_ROWS) ** PERSP_EXP;
@@ -153,40 +185,17 @@ function drawGrid(
     const xl = Math.max(0, vpx + (-FLOOR_EXT * W - vpx) * t);
     const xr = Math.min(W, vpx + ((1 + FLOOR_EXT) * W - vpx) * t);
 
-    if (t > 0.70) {
-      ctx.save();
-      ctx.shadowColor = `rgba(${CR},${CG},${CB},0.18)`;
-      ctx.shadowBlur  = 4;
-      ctx.strokeStyle = edgeFade(op);
-      ctx.lineWidth   = lw;
-      ctx.beginPath();
-      ctx.moveTo(xl, y);
-      ctx.lineTo(xr, y);
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      ctx.strokeStyle = edgeFade(op);
-      ctx.lineWidth   = lw;
-      ctx.beginPath();
-      ctx.moveTo(xl, y);
-      ctx.lineTo(xr, y);
-      ctx.stroke();
-    }
+    drawFloorLine(xl, xr, y, edgeFade(op), lw, t > 0.70);
   }
 
   // ── Secondary floor horizontal lines ─────────────────────────────────────
-  ctx.lineWidth = 0.22;
   for (let i = 1; i <= S_ROWS; i++) {
     const t  = (i / S_ROWS) ** PERSP_EXP;
     const y  = vpy + floorH * t;
     const op = t ** 0.44 * S_OP;
     const xl = Math.max(0, vpx + (-FLOOR_EXT * W - vpx) * t);
     const xr = Math.min(W, vpx + ((1 + FLOOR_EXT) * W - vpx) * t);
-    ctx.strokeStyle = edgeFade(op);
-    ctx.beginPath();
-    ctx.moveTo(xl, y);
-    ctx.lineTo(xr, y);
-    ctx.stroke();
+    drawFloorLine(xl, xr, y, edgeFade(op), 0.22, false);
   }
 
   // ── Convergence lines — unified world-space loop ──────────────────────────
