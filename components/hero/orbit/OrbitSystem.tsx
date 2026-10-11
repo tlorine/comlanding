@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   CORE_Z,
   NODES,
@@ -25,6 +24,7 @@ import { OrbitParticles } from './OrbitParticles';
 import { OrbitRings } from './OrbitRings';
 import { useActiveNode } from './hooks/useActiveNode';
 import { useFitScale } from './hooks/useFitScale';
+import { useHeightFit } from './hooks/useHeightFit';
 import { useInView } from './hooks/useInView';
 import { useOrbitClock } from './hooks/useOrbitClock';
 import { useReducedMotion } from './hooks/useReducedMotion';
@@ -32,18 +32,8 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 export function OrbitSystem() {
   const { activeId, bind } = useActiveNode();
   const { ref: fitRef, fit: fitW } = useFitScale<HTMLDivElement>(SYSTEM_SIZE);
-
-  // Height-based fit — uses window.innerHeight directly to avoid the
-  // feedback loop that occurs when reading clientHeight of a scaled element.
-  const [hFit, setHFit] = useState(1);
-  useEffect(() => {
-    const update = () => setHFit(Math.min(1, (window.innerHeight * 0.60) / SYSTEM_SIZE));
-    update();
-    window.addEventListener('resize', update, { passive: true });
-    return () => window.removeEventListener('resize', update);
-  }, []);
-
-  const fit = Math.min(fitW, hFit);
+  const hFit = useHeightFit(SYSTEM_SIZE);
+  const fit  = Math.min(fitW, hFit);
   const { ref: viewRef, inView } = useInView<HTMLDivElement>();
   const reducedMotion = useReducedMotion();
 

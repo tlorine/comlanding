@@ -57,9 +57,9 @@ function AspectGuard() {
 
 // ── Animated mesh group ───────────────────────────────────────────────────
 
-type CoreMeshProps = { reducedMotion: boolean };
+type CoreMeshProps = { reducedMotion: boolean; inView: boolean };
 
-function CoreMesh({ reducedMotion }: CoreMeshProps) {
+function CoreMesh({ reducedMotion, inView }: CoreMeshProps) {
   // Single uniforms object shared by both shader materials —
   // one uTime update in useFrame drives both plasma and corona.
   const uniforms = useMemo<StarUniforms>(() => ({ uTime: { value: 0 } }), []);
@@ -109,7 +109,7 @@ function CoreMesh({ reducedMotion }: CoreMeshProps) {
   );
 
   useFrame((state, delta) => {
-    if (reducedMotion) return;
+    if (reducedMotion || !inView) return;
     const d = Math.min(delta, 0.05);
 
     // Accumulate time with clamped delta — prevents jump on tab return.
@@ -179,7 +179,7 @@ export type CoreSceneProps = {
 export function CoreScene({ reducedMotion, inView }: CoreSceneProps) {
   return (
     <Canvas
-      frameloop={reducedMotion ? 'demand' : 'always'}
+      frameloop={reducedMotion || !inView ? 'demand' : 'always'}
       camera={{ position: [0, 0, 155], fov: 46, near: 0.1, far: 1000 }}
       gl={{
         alpha:           true,
@@ -191,7 +191,7 @@ export function CoreScene({ reducedMotion, inView }: CoreSceneProps) {
       style={{ background: 'transparent' }}
     >
       <AspectGuard />
-      <CoreMesh reducedMotion={reducedMotion} />
+      <CoreMesh reducedMotion={reducedMotion} inView={inView} />
     </Canvas>
   );
 }

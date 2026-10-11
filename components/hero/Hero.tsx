@@ -1,6 +1,7 @@
 import { ContactCta } from '../contact/ContactCta';
 import { HERO_CONTENT } from './hero.content';
 import { GridBackground } from './GridBackground';
+import { NebulaBackground } from './NebulaBackground';
 import { OrbitSystem } from './orbit/OrbitSystem';
 
 // Серверный компонент: текст не попадает в клиентский бандл.
@@ -10,6 +11,7 @@ export default function Hero() {
 
   return (
     <section className="relative isolate flex items-center py-12">
+      <NebulaBackground />
       <GridBackground />
       <div className="grid min-w-0 w-full grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <div className="min-w-0">

@@ -55,16 +55,16 @@ export const TOOLTIP_OFFSET = 44; // от центра ноды до верха 
 export const ORBIT_OPACITY = { idle: 0.14, dimmed: 0.05 } as const;
 
 // --- Пульсация ядра ---
-// Два близких нечётных частотных отношения (0.78 / 1.23 ≈ 1:1.58) создают
+// Два близких нечётных частотных отношения (0.52 / 0.91 ≈ 1:1.75) создают
 // нерегулярные пики — органичный ритм без метрономичности.
-// Эти константы использует и CoreShader.ts (GLSL), и JS-сторона (OrbitSystem, GridBackground).
+// Эти константы использует и CoreShader.ts (GLSL), и JS-сторона (OrbitSystem).
 // При изменении здесь обязательно синхронизировать GLSL в CoreShader.ts.
-export const PULSE_FREQ_1  = 0.78;   // рад/с (~8.1 с период)
-export const PULSE_FREQ_2  = 1.23;   // рад/с (~5.1 с период)
-export const PULSE_AMP_1   = 0.12;   // амплитуда первой гармоники
-export const PULSE_AMP_2   = 0.08;   // амплитуда второй гармоники
+export const PULSE_FREQ_1  = 0.52;   // рад/с (~12.1 с период)
+export const PULSE_FREQ_2  = 0.91;   // рад/с (~6.9 с период)
+export const PULSE_AMP_1   = 0.07;   // амплитуда первой гармоники
+export const PULSE_AMP_2   = 0.04;   // амплитуда второй гармоники
 export const PULSE_PHASE_2 = 2.10;   // фазовое смещение второй гармоники (рад)
-// Приблизительная максимальная амплитуда суммы: PULSE_AMP_1 + PULSE_AMP_2 = 0.20
+// Приблизительная максимальная амплитуда суммы: PULSE_AMP_1 + PULSE_AMP_2 = 0.11
 
 // --- Данные ---
 export const NODES: readonly SystemNode[] = [
