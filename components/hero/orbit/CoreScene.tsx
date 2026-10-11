@@ -144,11 +144,14 @@ function CoreMesh({ reducedMotion, inView }: CoreMeshProps) {
       </mesh>
 
       {/* ── Corona / atmospheric halo ──────────────────────────────────── */}
-      {/*   Slightly larger sphere, AdditiveBlending.                      */}
+      {/*   EXPERIMENT: hidden — the gap between r=46 (plasma) and r=55    */}
+      {/*   (corona Fresnel peak at ~114 px) creates a ~20 px dark annular */}
+      {/*   zone that reads as a thick plastic shell.                       */}
+      {/*   To restore: remove visible={false}.                             */}
       {/*   Fresnel ≈ 0 at centre → adds near-nothing over the plasma.    */}
       {/*   Fresnel ≈ 1 at limb → soft electric-blue glow beyond silhouette.*/}
-      <mesh>
-        <sphereGeometry args={[R_CORONA, 32, 24]} />
+      <mesh visible={false}>
+        <sphereGeometry args={[R_CORONA, 64, 48]} />
         <primitive object={coronaMat} attach="material" />
       </mesh>
 

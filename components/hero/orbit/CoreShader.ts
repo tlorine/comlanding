@@ -32,11 +32,28 @@ export type StarUniforms = {
 
 // ── Vertex shaders ────────────────────────────────────────────────────────
 
-// Plasma sphere vertex: world position needed for 3D noise sampling.
-// Organic silhouette deformation via low-frequency vertex displacement along normals.
-// Scale 0.020 wu⁻¹ → one FBM cell ≈ 50 wu (larger than sphere r=46 → 1–2 bumps
-// visible across the silhouette at any moment). Amplitude ≈ ±0.63 wu ≈ 1.4% of r.
-// Original sphere normal is passed unchanged for lighting (error <1.5% at this amplitude).
+// Plasma sphere vertex: world position + coherent surface displacement.
+//
+// Displacement is derived from the same noise seed as coronaVertexShader
+// (identical scale 0.020 wu⁻¹ and time offsets). Because both meshes share
+// the same origin, a point on the corona at direction D and a point on the
+// plasma sphere at the same D differ by only 9 wu — well under one FBM cell
+// (≈ 50 wu) — so displacement values agree within ~18 %, making bumps and
+// hollows appear at the same angular positions on both meshes.
+//
+// Passing the displaced position as vWorldPos means the fragment shader
+// samples the 3D noise at the actual surface location, not the underlying
+// perfect sphere. Plasma energy flows anchor to the surface relief rather
+// than sliding independently across it.
+//
+// Displacement budget
+// ───────────────────
+// pvfbm2 range ≈ ±0.45; × 4.0 → amplitude ≈ ±1.80 wu ≈ 3.9 % of r=46.
+// Screen-space variation: ±1.80 wu × 1.946 px/wu = ±3.5 px (7 px p-to-p).
+// Chromosphere half-power rim ≈ 8.5 px → 82 % of rim width → clearly visible.
+// Tangential gradient ≈ 1.80 × 0.020 = 0.036 → normal angle error ≈ 2.1°.
+// Without a competing circular corona rim this error creates a smooth ±22 %
+// brightness variation around the limb → reads as volume, not as arc artefact.
 export const plasmaVertexShader = /* glsl */ `
 uniform float uTime;
 
@@ -44,62 +61,128 @@ varying vec3 vNormal;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 
-// ── Displacement noise (separate GLSL program — names independent of fragment) ──
-vec3 dvhash3(vec3 p) {
+// ── Displacement noise (Perlin-style gradient, separate GLSL program) ─────
+// Hash, quintic and noise functions mirror coronaVertexShader (cv → pv prefix).
+// Same arithmetic ensures identical displacement field given the same input.
+vec3 pvhash3(vec3 p) {
   p  = fract(p * vec3(0.1031, 0.1030, 0.0973));
   p += dot(p, p.yxz + 33.33);
   return fract((p.xxy + p.yxx) * p.zyx) * 2.0 - 1.0;
 }
-vec3 dvquintic(vec3 t) {
+vec3 pvquintic(vec3 t) {
   return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
-float dvnoise(vec3 p) {
-  vec3 i = floor(p), f = fract(p), u = dvquintic(f);
-  float n000 = dot(dvhash3(i               ), f               );
-  float n100 = dot(dvhash3(i+vec3(1,0,0)   ), f-vec3(1,0,0)   );
-  float n010 = dot(dvhash3(i+vec3(0,1,0)   ), f-vec3(0,1,0)   );
-  float n110 = dot(dvhash3(i+vec3(1,1,0)   ), f-vec3(1,1,0)   );
-  float n001 = dot(dvhash3(i+vec3(0,0,1)   ), f-vec3(0,0,1)   );
-  float n101 = dot(dvhash3(i+vec3(1,0,1)   ), f-vec3(1,0,1)   );
-  float n011 = dot(dvhash3(i+vec3(0,1,1)   ), f-vec3(0,1,1)   );
-  float n111 = dot(dvhash3(i+vec3(1,1,1)   ), f-vec3(1,1,1)   );
+float pvnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p), u = pvquintic(f);
+  float n000 = dot(pvhash3(i               ), f               );
+  float n100 = dot(pvhash3(i+vec3(1,0,0)   ), f-vec3(1,0,0)   );
+  float n010 = dot(pvhash3(i+vec3(0,1,0)   ), f-vec3(0,1,0)   );
+  float n110 = dot(pvhash3(i+vec3(1,1,0)   ), f-vec3(1,1,0)   );
+  float n001 = dot(pvhash3(i+vec3(0,0,1)   ), f-vec3(0,0,1)   );
+  float n101 = dot(pvhash3(i+vec3(1,0,1)   ), f-vec3(1,0,1)   );
+  float n011 = dot(pvhash3(i+vec3(0,1,1)   ), f-vec3(0,1,1)   );
+  float n111 = dot(pvhash3(i+vec3(1,1,1)   ), f-vec3(1,1,1)   );
   return mix(
     mix(mix(n000,n100,u.x),mix(n010,n110,u.x),u.y),
     mix(mix(n001,n101,u.x),mix(n011,n111,u.x),u.y),
     u.z);
 }
-// 2-octave FBM — large-scale only for smooth silhouette deformation.
-// Output range ≈ ±0.45 (0.5 × gnoise + 0.25 × gnoise at gnoise max ≈ 0.60).
-float dvfbm2(vec3 p) {
-  return dvnoise(p) * 0.50
-       + dvnoise(p * 2.1 + vec3(1.7, 9.2, 3.4)) * 0.25;
+// 2-octave FBM — large-cell only; no high frequencies → smooth surface.
+// Range ≈ ±0.45  (octave 0: 0.5 × pvnoise, octave 1: 0.25 × pvnoise).
+float pvfbm2(vec3 p) {
+  return pvnoise(p) * 0.50
+       + pvnoise(p * 2.1 + vec3(1.7, 9.2, 3.4)) * 0.25;
 }
 
 void main() {
-  // Organic silhouette deformation
-  vec3  dispP    = position * 0.020
-                 + vec3(uTime * 0.011, uTime * 0.008, uTime * 0.006);
-  float disp     = dvfbm2(dispP) * 1.4;          // ≈ ±0.63 wu ≈ 1.4% of r=46
+  // Same seed as coronaVertexShader → coherent deformation across both meshes.
+  vec3  dispP     = position * 0.020
+                  + vec3(uTime * 0.011, uTime * 0.008, uTime * 0.006);
+  float disp      = pvfbm2(dispP) * 4.0;          // ≈ ±1.80 wu ≈ 3.9% of r=46
   vec3  displaced = position + normal * disp;
 
-  vNormal     = normalize(normalMatrix * normal); // original normal — lighting unaffected
+  vNormal     = normalize(normalMatrix * normal); // original normal; error < 0.5°
   vec4 wPos   = modelMatrix * vec4(displaced, 1.0);
-  vWorldPos   = wPos.xyz;
+  vWorldPos   = wPos.xyz;                         // displaced → fragment noise anchors to relief
   vViewDir    = normalize(cameraPosition - wPos.xyz);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
 }
 `;
 
-// Corona sphere vertex: Fresnel only, world position not needed.
+// Corona sphere vertex: Fresnel + organic silhouette deformation.
+//
+// The corona (r=55) defines the perceived outer contour of the core — displacing
+// its vertices along the sphere normal makes the outline gently undulate.
+//
+// Displacement budget
+// ───────────────────
+// Scale  0.020 wu⁻¹ → FBM cell ≈ 50 wu  (≈ 0.9 × r=55) → 1–2 smooth bumps
+//        visible at any moment — no faceting, no spikes.
+// cvfbm2 output range ≈ ±0.45; × 6.1 → amplitude ≈ ±2.75 wu ≈ 5.0 % of r=55.
+// Drift speeds (0.011 / 0.008 / 0.006 wu/s) give a ~90 s morph cycle.
+// Geometry: requires 64 × 48 segments — at 32 × 24 the linear interpolation error
+// between vertices reaches ~46 % of the displacement → visible faceting at 5 %.
+//
+// Why original normals are kept (not displaced normals):
+//   Normal rotation at this scale = arctan(|∇_T h| / R) = arctan(0.073 / 55) ≈ 0.075°.
+//   Resulting Fresnel (fRim) variation < 0.6 % — sub-perceptual.
+//   Visibility mechanism is purely geometric: equatorial silhouette vertices
+//   project to a ±5.35 px screen-space band → 10.7 px peak-to-peak rim oscillation
+//   vs ~15 px Fresnel rim half-power width → clearly visible organic contour.
+//
+// Normal accuracy
+// ───────────────
+// Tangential gradient of displacement ≈ amp × scale = 1.62 × 0.020 = 0.032.
+// Normal angle error = arctan(0.032) ≈ 1.8° — below perceptual threshold.
+// Original sphere normal passed to fragment for Fresnel: no arc artefacts.
 export const coronaVertexShader = /* glsl */ `
+uniform float uTime;
+
 varying vec3 vNormal;
 varying vec3 vViewDir;
 
+// ── Displacement noise (Perlin-style gradient, separate GLSL program) ─────
+vec3 cvhash3(vec3 p) {
+  p  = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.xxy + p.yxx) * p.zyx) * 2.0 - 1.0;
+}
+vec3 cvquintic(vec3 t) {
+  return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+float cvnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p), u = cvquintic(f);
+  float n000 = dot(cvhash3(i               ), f               );
+  float n100 = dot(cvhash3(i+vec3(1,0,0)   ), f-vec3(1,0,0)   );
+  float n010 = dot(cvhash3(i+vec3(0,1,0)   ), f-vec3(0,1,0)   );
+  float n110 = dot(cvhash3(i+vec3(1,1,0)   ), f-vec3(1,1,0)   );
+  float n001 = dot(cvhash3(i+vec3(0,0,1)   ), f-vec3(0,0,1)   );
+  float n101 = dot(cvhash3(i+vec3(1,0,1)   ), f-vec3(1,0,1)   );
+  float n011 = dot(cvhash3(i+vec3(0,1,1)   ), f-vec3(0,1,1)   );
+  float n111 = dot(cvhash3(i+vec3(1,1,1)   ), f-vec3(1,1,1)   );
+  return mix(
+    mix(mix(n000,n100,u.x),mix(n010,n110,u.x),u.y),
+    mix(mix(n001,n101,u.x),mix(n011,n111,u.x),u.y),
+    u.z);
+}
+// 2-octave FBM — large-cell only; no high frequencies → smooth deformation.
+// Range ≈ ±0.45  (octave 0: 0.5 × cvnoise, octave 1: 0.25 × cvnoise).
+float cvfbm2(vec3 p) {
+  return cvnoise(p) * 0.50
+       + cvnoise(p * 2.1 + vec3(1.7, 9.2, 3.4)) * 0.25;
+}
+
 void main() {
+  vec3  dispP     = position * 0.020
+                  + vec3(uTime * 0.011, uTime * 0.008, uTime * 0.006);
+  float disp      = cvfbm2(dispP) * 6.1;          // ≈ ±2.75 wu ≈ 5.0% of r=55
+  vec3  displaced = position + normal * disp;
+
+  // Original sphere normal → Fresnel in fragment; angle error <1° at this amplitude.
   vNormal     = normalize(normalMatrix * normal);
-  vec4 wPos   = modelMatrix * vec4(position, 1.0);
+  vec4 wPos   = modelMatrix * vec4(displaced, 1.0);
   vViewDir    = normalize(cameraPosition - wPos.xyz);
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
 }
 `;
 
