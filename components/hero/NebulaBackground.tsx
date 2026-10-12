@@ -198,7 +198,12 @@ export function NebulaBackground() {
       aria-hidden="true"
       className="pointer-events-none absolute inset-0"
       // CSS blur softens the 8× upscaling to atmospheric smoothness
-      style={{ zIndex: -2, filter: 'blur(6px)' }}
+      style={{
+        zIndex: -2,
+        filter: 'blur(6px)',
+        // Mirror the grid mask so both background layers dissolve in sync.
+        maskImage: 'linear-gradient(to bottom, black 60%, transparent 95%)',
+      }}
     />
   );
 }

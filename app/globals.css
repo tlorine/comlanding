@@ -25,6 +25,14 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Плавная прокрутка к якорям.
+   Отключена при prefers-reduced-motion — переход будет мгновенным. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 
 /* ── OrbitSystem: surface material for orbit nodes ──────────────────────── */
 /* Radial gradient for circular nodes: upper-left bright spot simulates the  */

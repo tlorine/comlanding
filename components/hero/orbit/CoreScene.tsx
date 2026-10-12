@@ -190,7 +190,7 @@ export function CoreScene({ reducedMotion, inView }: CoreSceneProps) {
         powerPreference: 'low-power',
         stencil:         false,
       }}
-      dpr={[1, 2]}
+      dpr={2} // 2×2 supersampling on 1x screens; unchanged on Retina
       style={{ background: 'transparent' }}
     >
       <AspectGuard />

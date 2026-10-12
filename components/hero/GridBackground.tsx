@@ -43,7 +43,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useReducedMotion } from './hooks/useReducedMotion';
-import { lensDisplace, LENS_FLOOR_K } from './lens';
+import { lensDisplace, LENS_FLOOR_K, LENS_CX, LENS_CY } from './lens';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ const S_COLS = 30;
 const FLOOR_EXT = 2;
 
 // Gravitational-lens floor-line distortion
-const LENS_SEGS = 12; // segments per floor line
+const LENS_SEGS = 32; // segments per floor line (more → smoother lens curve and haze wave)
 
 const PERSP_EXP = 1.85;
 
@@ -85,6 +85,53 @@ const ABOVE_OP = 0.08;
 const CR = 88;
 const CG = 116;
 const CB = 162;
+
+// ── Thermal shimmer ──────────────────────────────────────────────────────────
+//
+// Adds a small animated vertical displacement to floor-line vertices inside
+// the same lensProfile bell used for gravitational curvature.  Effect is
+// purely geometric (vertex y-shift); no new layers or compositors needed.
+//
+// HAZE_AMP   — peak displacement in CSS px at the bell midpoint.
+// IN_PX/OUT_PX — zone in pixel-distance from sphere centre.  Using absolute
+//               pixels (not UV units) ensures the bell covers the thick,
+//               visible bottom floor lines (up to ~380 px below sphere centre)
+//               rather than only the thin lines near the sphere equator.
+// F1 / F2    — noise cell sizes ≈ W/F (F=6 → ~230 px cells at 1392 px).
+// SU / SV    — drift in noise-UV/sec; apparent pixel/sec ≈ SU×W/F.
+//              SU1=0.40 → ~90 px/sec → one ±HAZE_AMP cycle every ~1.3 s.
+const HAZE_AMP    = 8.0; // DIAGNOSTIC — reduce to 2.5–3.5 after confirming visibility
+const HAZE_IN_PX  = 65;  // inner hard edge: just outside sphere silhouette
+const HAZE_OUT_PX = 400; // outer edge: covers all floor lines including row 12
+const HAZE_F1     = 6.2;
+const HAZE_F2     = 13.7;
+const HAZE_SU1    = 0.40; // was 0.09 — faster drift for perceptible animation
+const HAZE_SV1    = 0.25;
+const HAZE_SU2    = 0.60;
+const HAZE_SV2    = 0.38;
+
+function hazeHash(ix: number, iy: number): number {
+  const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+function hazeNoise(x: number, y: number): number {
+  const ix = Math.floor(x); const iy = Math.floor(y);
+  const fx = x - ix;        const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  return (
+    hazeHash(ix,   iy  ) * (1 - ux) * (1 - uy) +
+    hazeHash(ix+1, iy  ) *      ux  * (1 - uy) +
+    hazeHash(ix,   iy+1) * (1 - ux) *      uy  +
+    hazeHash(ix+1, iy+1) *      ux  *      uy
+  );
+}
+/** Two-octave FBM → [0, 1].  Each octave drifts at a different UV rate. */
+function hazeField(u: number, v: number, t: number): number {
+  const s1 = hazeNoise(u * HAZE_F1 + t * HAZE_SU1, v * HAZE_F1 + t * HAZE_SV1);
+  const s2 = hazeNoise(u * HAZE_F2 + t * HAZE_SU2, v * HAZE_F2 + t * HAZE_SV2) * 0.5;
+  return (s1 + s2) / 1.5;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -107,6 +154,7 @@ function drawGrid(
   W: number,
   H: number,
   vp: Vp,
+  time: number,
 ): void {
   ctx.clearRect(0, 0, W, H);
 
@@ -170,7 +218,24 @@ function drawGrid(
       const tx = s / LENS_SEGS;
       const rx = xl + (xr - xl) * tx;
       const [dx, dy] = lensDisplace(rx, y, W, H, LENS_FLOOR_K);
-      if (s === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
+
+      // Thermal shimmer: vertical-only FBM displacement inside a pixel-radius
+      // bell centred on the sphere.  Pixel distances cover the thick bottom
+      // floor lines that the old UV-unit bell (LENS_R_OUTER≈292 px) missed.
+      const u_h  = rx / W;
+      const v_h  = y  / H;
+      const rdx  = rx - LENS_CX * W;
+      const rdy  = y  - LENS_CY * H;
+      const r_px = Math.sqrt(rdx * rdx + rdy * rdy);
+      let   env  = 0;
+      if (r_px > HAZE_IN_PX && r_px < HAZE_OUT_PX) {
+        const tp = (r_px - HAZE_IN_PX) / (HAZE_OUT_PX - HAZE_IN_PX);
+        env = 16 * tp * tp * (1 - tp) * (1 - tp); // quartic bell, peak at tp=0.5
+      }
+      const haze = (hazeField(u_h, v_h, time) - 0.5) * 2.0; // [−1, +1]
+      const hy   = dy + env * HAZE_AMP * haze;
+
+      if (s === 0) ctx.moveTo(dx, hy); else ctx.lineTo(dx, hy);
     }
     ctx.stroke();
     if (withShadow) ctx.restore();
@@ -262,6 +327,7 @@ export function GridBackground() {
   const mouseOnRef    = useRef(false);
   const rafRef        = useRef<number>(0);
   const sizeRef       = useRef({ w: 1, h: 1 });
+  const timeRef       = useRef(0);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
@@ -294,7 +360,7 @@ export function GridBackground() {
       const ctx      = cv?.getContext('2d') ?? null;
       const { w, h } = sizeRef.current;
       if (ctx && w > 1 && h > 1) {
-        drawGrid(ctx, w, h, vpCurRef.current);
+        drawGrid(ctx, w, h, vpCurRef.current, timeRef.current);
       }
     }
 
@@ -326,10 +392,14 @@ export function GridBackground() {
     section.addEventListener('mousemove', onMouseMove);
     section.addEventListener('mouseleave', onMouseLeave);
 
-    const t0 = performance.now();
+    const t0      = performance.now();
+    let   prevNow = t0;
 
     function tick(now: number): void {
       const elapsed = (now - t0) / 1000;
+      const delta   = Math.min((now - prevNow) / 1000, 0.05);
+      prevNow = now;
+      timeRef.current += delta;
 
       if (!mouseOnRef.current) {
         vpTgtRef.current.x = VP_X0 + Math.sin(elapsed * 0.18) * DRIFT_X_AMP;
@@ -360,7 +430,13 @@ export function GridBackground() {
       ref={canvasRef}
       aria-hidden="true"
       className="pointer-events-none absolute inset-0"
-      style={{ zIndex: -1 }}
+      style={{
+        zIndex: -1,
+        // Fade the bottom ~35% of the canvas so the perspective floor dissolves
+        // into the page background rather than terminating in a hard edge.
+        // Applied purely as CSS; no changes to geometry, VP, or drawing code.
+        maskImage: 'linear-gradient(to bottom, black 65%, transparent 97%)',
+      }}
     />
   );
 }

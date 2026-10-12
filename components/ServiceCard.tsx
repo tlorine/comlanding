@@ -3,7 +3,7 @@ import type { ReactElement } from 'react';
 // ── Per-card SVG icons ─────────────────────────────────────────────────────
 // Stroke-based, 32×32 viewBox — consistent weight across all four cards.
 // Color is set via `currentColor` on the wrapper; the wrapper uses a cold
-// blue-grey that matches the orbit system palette (rgb 120,148,185).
+// blue that matches the orbit system palette.
 // Icons are specific to each service category, not generic tech decoration.
 
 const CARD_ICONS: Record<string, ReactElement> = {
@@ -58,33 +58,35 @@ export default function ServiceCard({ number, title, description, tags }: Props)
   const icon = CARD_ICONS[number];
 
   return (
-    <article className="group flex h-full min-w-0 flex-col rounded-2xl border border-white/10 bg-[#111111] p-6 transition duration-300 hover:-translate-y-1 hover:border-white/25 hover:bg-[#141414] hover:shadow-[0_16px_48px_rgba(0,0,0,0.55)] motion-reduce:transition-colors motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none">
+    <article className="group flex h-full min-w-0 flex-col rounded-xl border border-white/8 bg-[#111418] p-6 transition-all duration-300 hover:border-blue-500/25 hover:bg-[#12151b] hover:shadow-[0_8px_40px_rgba(30,80,200,0.10)] motion-reduce:transition-colors motion-reduce:hover:shadow-none">
 
-      {/* Number + icon row — number anchors reading order, icon provides
-          category identity. Both are quiet; neither competes with the title. */}
-      <div className="flex items-start justify-between">
-        <span className="font-mono text-xs tracking-[0.2em] text-white/30 transition-colors duration-300 group-hover:text-white/60">
-          {number}
-        </span>
-        {icon && (
-          <div className="h-8 w-8 text-[rgb(120,148,185)] opacity-35 transition-opacity duration-300 group-hover:opacity-60">
-            {icon}
-          </div>
-        )}
-      </div>
+      {/* Number — top-left reading anchor */}
+      <span className="font-mono text-xs tracking-[0.18em] text-white/25 transition-colors duration-300 group-hover:text-white/50">
+        {number}
+      </span>
 
-      <h3 className="mt-8 break-words text-xl font-semibold tracking-tight">{title}</h3>
+      {/* Icon — left-aligned below number, category identity */}
+      {icon && (
+        <div className="mt-5 h-9 w-9 text-[rgb(88,145,215)] opacity-45 transition-opacity duration-300 group-hover:opacity-80">
+          {icon}
+        </div>
+      )}
 
-      <p className="mt-3 break-words text-sm leading-relaxed text-white/50">{description}</p>
+      <h3 className="mt-6 break-words text-lg font-semibold leading-snug tracking-tight">
+        {title}
+      </h3>
+
+      <p className="mt-2.5 break-words text-sm leading-relaxed text-white/45">
+        {description}
+      </p>
 
       {tags && tags.length > 0 && (
-        // mt-auto anchors the tag row to the card bottom regardless of
-        // description length — keeps the grid row visually consistent.
-        <ul className="mt-auto flex flex-wrap gap-2 pt-6">
+        // mt-auto anchors tags to card bottom regardless of description length
+        <ul className="mt-auto flex flex-wrap gap-1.5 pt-5" aria-label="Теги направления">
           {tags.map((tag) => (
             <li
               key={tag}
-              className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-white/40 transition-colors duration-300 group-hover:border-white/20 group-hover:text-white/60"
+              className="rounded-full border border-white/8 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-white/30 transition-colors duration-300 group-hover:border-white/15 group-hover:text-white/45"
             >
               {tag}
             </li>

@@ -101,7 +101,9 @@ void main() {
   float disp      = pvfbm2(dispP) * 4.0;          // ≈ ±1.80 wu ≈ 3.9% of r=46
   vec3  displaced = position + normal * disp;
 
-  vNormal     = normalize(normalMatrix * normal); // original normal; error < 0.5°
+  // World-space normal: camera is unrotated, so this equals the previous
+  // normalMatrix result, but matches vWorldPos / cameraPosition space exactly.
+  vNormal     = normalize(mat3(modelMatrix) * normal);
   vec4 wPos   = modelMatrix * vec4(displaced, 1.0);
   vWorldPos   = wPos.xyz;                         // displaced → fragment noise anchors to relief
   vViewDir    = normalize(cameraPosition - wPos.xyz);
@@ -258,31 +260,50 @@ float gnoise(vec3 p) {
     u.z);
 }
 
+// ── Pixel-footprint octave filtering ──────────────────────────────────────
+// fw = noise cells per pixel. An octave fades out once its cell drops below
+// ~1.5–3 px (Nyquist) → no sub-pixel sparkle, resolvable detail untouched.
+float octaveFade(float fw) { return 1.0 - smoothstep(0.35, 0.70, fw); }
+
+// Footprint measured AFTER domain warp → accounts for local warp compression
+// and limb foreshortening.
+float footprint(vec3 p) { return max(length(dFdx(p)), length(dFdy(p))); }
+
 // gfbm5: 5-octave FBM of gradient noise, remapped to [0, 1].
 // Lacunarity 2.1, gain 0.48. Raw FBM max ≈ ±0.58 → scale 0.86 maps to ±0.50.
 // Remapping: v * 0.86 + 0.5 → output ≈ [0.00, 1.00], centred at 0.50.
-float gfbm5(vec3 p) {
+float gfbm5(vec3 p, float fw) {
   float v = 0.0, a = 0.5;
   vec3  q = p;
   for (int i = 0; i < 5; i++) {
-    v += a * gnoise(q);
-    q  = q * 2.1 + vec3(1.7, 9.2, 3.4);
-    a *= 0.48;
+    v  += a * gnoise(q) * octaveFade(fw);
+    q   = q * 2.1 + vec3(1.7, 9.2, 3.4);
+    a  *= 0.48;
+    fw *= 2.1;
   }
   return clamp(v * 0.86 + 0.5, 0.0, 1.0);
 }
 
 // gfbm3: 3-octave FBM — cheaper variant used only for domain warp (3× per fragment).
 // Raw FBM max ≈ ±0.51 → scale 0.98 maps to ±0.50 → output ≈ [0.00, 1.00].
-float gfbm3(vec3 p) {
+float gfbm3(vec3 p, float fw) {
   float v = 0.0, a = 0.5;
   vec3  q = p;
   for (int i = 0; i < 3; i++) {
-    v += a * gnoise(q);
-    q  = q * 2.1 + vec3(1.7, 9.2, 3.4);
-    a *= 0.48;
+    v  += a * gnoise(q) * octaveFade(fw);
+    q   = q * 2.1 + vec3(1.7, 9.2, 3.4);
+    a  *= 0.48;
+    fw *= 2.1;
   }
   return clamp(v * 0.98 + 0.5, 0.0, 1.0);
+}
+
+// softClip: identity below 0.8, asymptotic shoulder to 1.0 above —
+// keeps structure in hot spots instead of flat clipped patches.
+vec3 softClip(vec3 c) {
+  const float k = 0.80;
+  vec3 x = max(c - k, 0.0);
+  return min(c, vec3(k)) + x / (1.0 + x / (1.0 - k));
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
@@ -290,12 +311,17 @@ float gfbm3(vec3 p) {
 void main() {
   float t = uTime;
 
+  // Per-pixel renormalised normal and view vector (interpolated ones are < 1
+  // between vertices → faint faceting under pow(…,7) / pow(…,52)).
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPosition - vWorldPos);
+
   // ── Primary domain warp ───────────────────────────────────────────────────
   vec3 warpP = vWorldPos * 0.022 + vec3(t * 0.031, t * 0.022, t * 0.015);
   vec3 warpVec;
-  warpVec.x = gfbm3(warpP)                        - 0.5;
-  warpVec.y = gfbm3(warpP + vec3(7.3, 0.0, 0.0))  - 0.5;
-  warpVec.z = gfbm3(warpP + vec3(0.0, 5.1, 0.0))  - 0.5;
+  warpVec.x = gfbm3(warpP, 0.0)                        - 0.5;
+  warpVec.y = gfbm3(warpP + vec3(7.3, 0.0, 0.0), 0.0)  - 0.5;
+  warpVec.z = gfbm3(warpP + vec3(0.0, 5.1, 0.0), 0.0)  - 0.5;
   // ── Warp rotation experiment ───────────────────────────────────────────────
   // Slowly rotates warpVec in the xz-plane. Period ≈ 262 s; small harmonic
   // breaks periodicity. Effect: p1 sampling direction gradually curls rather
@@ -308,9 +334,9 @@ void main() {
   // ── Secondary domain warp (independent flow layer for p2) ─────────────────
   vec3 warpP2 = vWorldPos * 0.035 + vec3(-t * 0.018, t * 0.025, -t * 0.011);
   vec3 warpVec2;
-  warpVec2.x = gfbm3(warpP2 + vec3(3.1, 0.0, 0.0)) - 0.5;
-  warpVec2.y = gfbm3(warpP2 + vec3(0.0, 4.7, 0.0)) - 0.5;
-  warpVec2.z = gfbm3(warpP2 + vec3(0.0, 0.0, 6.3)) - 0.5;
+  warpVec2.x = gfbm3(warpP2 + vec3(3.1, 0.0, 0.0), 0.0) - 0.5;
+  warpVec2.y = gfbm3(warpP2 + vec3(0.0, 4.7, 0.0), 0.0) - 0.5;
+  warpVec2.z = gfbm3(warpP2 + vec3(0.0, 0.0, 6.3), 0.0) - 0.5;
 
   float warpAmp  = 1.55 + 0.50 * sin(t * 0.09 + 0.8) + 0.22 * sin(t * 0.23 + 2.1);
   float warpAmp2 = 0.90 + 0.32 * sin(t * 0.13 + 3.2) + 0.14 * sin(t * 0.31 + 0.5);
@@ -324,8 +350,8 @@ void main() {
   p2 += warpVec2 * warpAmp2;
 
   float blend1 = 0.50 + 0.17 * sin(t * 0.11 + 1.4) + 0.06 * sin(t * 0.27 + 0.6);
-  float v1 = gfbm5(p1);
-  float v2 = gfbm5(p2);
+  float v1 = gfbm5(p1, footprint(p1));
+  float v2 = gfbm5(p2, footprint(p2));
 
   // Reduced interact coefficient 0.22 → 0.14: less upward brightness bias.
   // Average plasma drops from ~0.56 back toward ~0.52 → more pixels spend time
@@ -342,9 +368,14 @@ void main() {
   // Gate via plasma smoothstep: only visible in mid-to-bright zones.
   vec3 pFine = vWorldPos * 0.200 + vec3(t * 0.19, t * 0.14, t * 0.09);
   pFine += warpVec * (warpAmp * 0.22);
-  float vFine  = gfbm3(pFine);
-  float streak = pow(max(0.0, 1.0 - abs(vFine - 0.50) * 5.0), 2.0)
-               * smoothstep(0.32, 0.58, plasma);
+  float vFine  = gfbm3(pFine, footprint(pFine));
+  // Band half-width 0.20, never narrower than ~1.5 px; widened bands are
+  // dimmed by w/wAA so average filament energy stays the same.
+  float wStreak = 0.20;
+  float wAA     = max(wStreak, fwidth(vFine) * 1.5);
+  float streak  = pow(max(0.0, 1.0 - abs(vFine - 0.50) / wAA), 2.0)
+                * (wStreak / wAA)
+                * smoothstep(0.32, 0.58, plasma);
 
   // v1-v2 large-scale layer-difference modulation (carried over from prev)
   float plasmaFine = clamp(plasma + (v1 - v2) * 0.15 * smoothstep(0.30, 0.62, plasma), 0.0, 1.0);
@@ -378,7 +409,7 @@ void main() {
   col += vec3(0.08, 0.42, 1.00) * streak * 0.20;
 
   // ── Deep inner radiance — volumetric depth impression ─────────────────────
-  float NdotV    = max(dot(vNormal, vViewDir), 0.0);
+  float NdotV    = max(dot(N, V), 0.0);
   float oneMinNV = 1.0 - NdotV;
   float faceGlow = NdotV * NdotV * 0.30;
   col += vec3(0.008, 0.040, 0.300) * faceGlow;
@@ -400,8 +431,8 @@ void main() {
 
   // ── Dual-lobe surface sheen ───────────────────────────────────────────────
   vec3  keyDir    = normalize(vec3(-0.55, 0.75, 0.55));
-  vec3  halfDir   = normalize(keyDir + vViewDir);
-  float NdotH     = max(dot(vNormal, halfDir), 0.0);
+  vec3  halfDir   = normalize(keyDir + V);
+  float NdotH     = max(dot(N, halfDir), 0.0);
   float specBroad = pow(NdotH, 10.0) * 0.09 * smoothstep(0.30, 0.60, plasmaFine);
   float specSharp = pow(NdotH, 52.0) * 0.24 * smoothstep(0.54, 0.82, plasmaFine);
   col += vec3(0.42, 0.65, 1.00) * specBroad
@@ -412,6 +443,13 @@ void main() {
 
   // ── Slow breathing modulation ─────────────────────────────────────────────
   col *= 1.0 + burst * 0.30 + 0.013 * sin(t * 2.37 + 1.9);
+
+  col = softClip(col);
+
+  // ── Dither ±½ LSB (interleaved gradient noise) — removes 8-bit banding in
+  // the deep-blue range; invisible as grain.
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  col += (ign - 0.5) / 255.0;
 
   gl_FragColor = vec4(col, 1.0);
 }

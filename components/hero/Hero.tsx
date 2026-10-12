@@ -10,7 +10,7 @@ export default function Hero() {
   const { title, description, cta } = HERO_CONTENT;
 
   return (
-    <section className="relative isolate flex items-center py-12">
+    <section className="relative isolate flex flex-1 items-center py-12">
       <NebulaBackground />
       <GridBackground />
       <div className="grid min-w-0 w-full grid-cols-1 items-center gap-12 lg:grid-cols-2">
@@ -23,7 +23,9 @@ export default function Hero() {
             {description}
           </p>
 
-          <ContactCta className="mt-10">{cta.label}</ContactCta>
+          <div className="mt-10 flex flex-wrap items-center gap-4">
+            <ContactCta>{cta.label}</ContactCta>
+          </div>
         </div>
 
         <OrbitSystem />

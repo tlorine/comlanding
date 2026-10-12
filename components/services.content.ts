@@ -1,6 +1,8 @@
 export const SERVICES_CONTENT = {
-  title: 'Что мы создаём',
-  meta: '2026 / Yerevan',
+  sectionNumber: '01',
+  sectionLabel: 'Что мы создаём',
+  heading: 'Четыре направления — одна цель.',
+  lead: 'Работаю с проектами разного масштаба — от прототипов до продакшн-систем. При необходимости подключаю нужных специалистов.',
   items: [
     {
       number: '01',
@@ -11,7 +13,7 @@ export const SERVICES_CONTENT = {
     {
       number: '02',
       title: 'Автоматизация',
-      description: 'Убираем ручную работу из бизнес-процессов.',
+      description: 'Сокращаю ручной труд и автоматизирую бизнес-процессы.',
       tags: ['Workflows', 'Боты', 'CRM'],
     },
     {
@@ -23,7 +25,7 @@ export const SERVICES_CONTENT = {
     {
       number: '04',
       title: 'Интеграции',
-      description: 'Связываем сервисы и строим надёжные API.',
+      description: 'Связываю сервисы и строю надёжные API.',
       tags: ['API', 'Telegram', 'Платежи'],
     },
   ],
