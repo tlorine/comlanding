@@ -37,6 +37,8 @@ export type CoreProps = {
 export function Core({ reducedMotion, inView }: CoreProps) {
   return (
     <div
+      // Read by NebulaBackground to anchor the fog glow to the sphere.
+      data-orbit-core=""
       className="absolute"
       style={{
         zIndex: CORE_Z,

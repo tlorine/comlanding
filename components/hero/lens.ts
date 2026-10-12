@@ -1,8 +1,8 @@
 // ── Gravitational-lens optical parameters ───────────────────────────────────
 //
-// Shared by GridBackground (floor-line curvature) and NebulaBackground
-// (UV magnification).  Both effects use the same bell profile so the
-// distortion field reads as a single coherent physical lens.
+// Used by GridBackground (floor-line curvature, thermal shimmer) and
+// HazeCompositor. LENS_CX / LENS_CY also serve as NebulaBackground's fallback
+// sphere position before the core element is measured.
 //
 // Lens center in normalised UV space [0..1] × [0..1] — matches the
 // approximate screen position of the plasma core inside the Hero layout.
@@ -15,8 +15,7 @@ export const LENS_R_INNER = 0.06;
 export const LENS_R_OUTER = 0.24;
 
 // Displacement strength for each consumer.
-export const LENS_FLOOR_K    = 0.022;  // fraction of canvas width, grid lines
-export const LENS_NEBULA_UV_K = 0.030; // UV units, nebula inward sampling
+export const LENS_FLOOR_K = 0.022; // fraction of canvas width, grid lines
 
 /**
  * Quartic bell profile — smooth zero at both ends, single peak at t = 0.5.
